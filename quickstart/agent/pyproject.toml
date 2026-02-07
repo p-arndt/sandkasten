@@ -1,0 +1,10 @@
+[project]
+name = "sandkasten-agent"
+version = "0.1.0"
+description = "Sandkasten coding agent quickstart"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.1",
+    "openai-agents>=0.8.1",
+    "rich>=14.3.2",
+]

@@ -1,0 +1,19 @@
+services:
+  sandkasten:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.daemon
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+      - ./sandkasten.yaml:/app/sandkasten.yaml:ro
+    command: ["--config", "/app/sandkasten.yaml"]
+    restart: unless-stopped
+    networks:
+      - sandkasten
+
+networks:
+  sandkasten:
+    driver: bridge

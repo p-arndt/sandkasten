@@ -1,0 +1,22 @@
+# Build artifacts
+bin/
+images/base/runner
+*.db
+*.db-shm
+*.db-wal
+
+# SDK
+sdk/node_modules/
+sdk/dist/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# Data
+data/
+
+# Git
+.git/
+.gitignore

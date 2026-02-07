@@ -1,0 +1,14 @@
+# Data
+daemon/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+agent/__pycache__/
+agent/*.pyc
+agent/.venv/
+agent/venv/
+
+# Env
+.env

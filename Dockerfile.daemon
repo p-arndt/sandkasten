@@ -1,0 +1,35 @@
+# Build stage
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apk add --no-cache git make
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source
+COPY . .
+
+# Build the daemon
+RUN CGO_ENABLED=0 GOOS=linux go build -o sandkasten ./cmd/sandkasten
+
+# Runtime stage
+FROM alpine:3.19
+
+# Install Docker CLI (to manage containers)
+RUN apk add --no-cache docker-cli ca-certificates
+
+WORKDIR /app
+
+# Copy daemon binary
+COPY --from=builder /build/sandkasten .
+
+# Create data directory
+RUN mkdir -p /data
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/sandkasten"]

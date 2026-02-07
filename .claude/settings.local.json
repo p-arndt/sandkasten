@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go get:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(go build:*)",
+      "Bash(go version:*)",
+      "Bash(go env:*)",
+      "Bash(go vet:*)",
+      "WebSearch",
+      "WebFetch(domain:openai.github.io)",
+      "Bash(uv run python:*)"
+    ]
+  }
+}
