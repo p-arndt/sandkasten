@@ -3,7 +3,7 @@
 	import './layout.css';
 	import { page } from '$app/stores';
 	import { ModeWatcher } from 'mode-watcher';
-	import { Home, Terminal, Folder, Settings as SettingsIcon, Key, CheckCircle, AlertCircle } from '@lucide/svelte';
+	import { Home, Terminal, Folder, Settings as SettingsIcon, Key, CheckCircle, AlertCircle, MessageSquare } from '@lucide/svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar';
 	import ModeToggle from '$lib/components/mode-toggle.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -30,6 +30,7 @@
 
 	const navItems = [
 		{ href: '/', icon: Home, label: 'Overview' },
+		{ href: '/playground', icon: MessageSquare, label: 'Playground' },
 		{ href: '/sessions', icon: Terminal, label: 'Sessions' },
 		{ href: '/workspaces', icon: Folder, label: 'Workspaces' },
 		{ href: '/settings', icon: SettingsIcon, label: 'Settings' }

@@ -10,6 +10,9 @@
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { api } from '$lib/api';
 	import { getStoredApiKey, setStoredApiKey } from '$lib/api-key';
+	import { getStoredPlaygroundSettings, setStoredPlaygroundSettings } from '$lib/playground/settings';
+	import type { PlaygroundSettings, ProviderId } from '$lib/playground/types';
+	import { PROVIDER_LABELS, DEFAULT_MODELS } from '$lib/playground/types';
 	import { toast } from 'svelte-sonner';
 
 	let configContent = $state('');
@@ -22,6 +25,9 @@
 	// API key (masked in UI when loaded from storage)
 	let apiKeyInput = $state('');
 	let apiKeySaved = $state(false);
+
+	// Playground provider/model/keys
+	let playgroundSettings = $state<PlaygroundSettings>(getStoredPlaygroundSettings());
 
 	async function loadConfig() {
 		loading = true;
@@ -87,9 +93,23 @@
 		});
 	}
 
+	function savePlaygroundSettings() {
+		setStoredPlaygroundSettings(playgroundSettings);
+		toast.success('Playground settings saved');
+	}
+
+	function setPlaygroundProvider(provider: ProviderId) {
+		playgroundSettings = {
+			...playgroundSettings,
+			provider,
+			model: playgroundSettings.model?.trim() || DEFAULT_MODELS[provider]
+		};
+	}
+
 	onMount(() => {
 		loadConfig();
 		if (getStoredApiKey()) apiKeySaved = true;
+		playgroundSettings = getStoredPlaygroundSettings();
 	});
 </script>
 
@@ -129,6 +149,109 @@
 			{#if apiKeySaved && !apiKeyInput}
 				<p class="text-xs text-muted-foreground">A key is stored. Enter a new value and save to replace, or save with an empty field to clear.</p>
 			{/if}
+		</Card.Content>
+	</Card.Root>
+
+	<!-- Playground (model provider: OpenAI, Google, Google Vertex) -->
+	<Card.Root>
+		<Card.Header>
+			<Card.Title class="flex items-center gap-2">
+				<Key class="h-5 w-5" />
+				Playground (model provider)
+			</Card.Title>
+			<Card.Description>
+				Provider and API key for the Playground coding agent. Choose OpenAI, Google (Gemini), or Google Vertex AI.
+			</Card.Description>
+		</Card.Header>
+		<Card.Content class="space-y-4">
+			<div class="flex flex-wrap items-center gap-4">
+				<div>
+					<label for="pg-provider" class="mb-1 block text-sm font-medium">Provider</label>
+					<select
+						id="pg-provider"
+						class="rounded-md border bg-background px-3 py-2 text-sm"
+						value={playgroundSettings.provider}
+						onchange={(e) => setPlaygroundProvider((e.currentTarget.value as ProviderId))}
+					>
+						{#each Object.entries(PROVIDER_LABELS) as [id, label]}
+							<option value={id}>{label}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="min-w-[200px]">
+					<label for="pg-model" class="mb-1 block text-sm font-medium">Model</label>
+					<Input
+						id="pg-model"
+						bind:value={playgroundSettings.model}
+						placeholder={DEFAULT_MODELS[playgroundSettings.provider]}
+						class="font-mono"
+					/>
+				</div>
+			</div>
+			{#if playgroundSettings.provider === 'openai'}
+				<div>
+					<label for="pg-openai-key" class="mb-1 block text-sm font-medium">OpenAI API key</label>
+					<Input
+						id="pg-openai-key"
+						bind:value={playgroundSettings.openaiApiKey}
+						type="password"
+						placeholder="sk-..."
+						class="max-w-md font-mono"
+						autocomplete="off"
+					/>
+				</div>
+			{:else if playgroundSettings.provider === 'google'}
+				<div>
+					<label for="pg-google-key" class="mb-1 block text-sm font-medium">Google API key (Gemini)</label>
+					<Input
+						id="pg-google-key"
+						bind:value={playgroundSettings.googleApiKey}
+						type="password"
+						placeholder="AIza..."
+						class="max-w-md font-mono"
+						autocomplete="off"
+					/>
+				</div>
+			{:else}
+				<div class="space-y-3">
+					<div>
+						<label for="pg-vertex-key" class="mb-1 block text-sm font-medium">Vertex API key or service account JSON</label>
+						<Input
+							id="pg-vertex-key"
+							bind:value={playgroundSettings.googleVertexApiKey}
+							type="password"
+							placeholder="Express API key or paste JSON (client_email, private_key)"
+							class="max-w-md font-mono text-xs"
+							autocomplete="off"
+						/>
+					</div>
+					<div class="flex gap-4">
+						<div>
+							<label for="pg-vertex-project" class="mb-1 block text-sm font-medium">Project ID</label>
+							<Input
+								id="pg-vertex-project"
+								bind:value={playgroundSettings.vertexProject}
+								placeholder="my-gcp-project"
+								class="font-mono"
+							/>
+						</div>
+						<div>
+							<label for="pg-vertex-location" class="mb-1 block text-sm font-medium">Location</label>
+							<Input
+								id="pg-vertex-location"
+								bind:value={playgroundSettings.vertexLocation}
+								placeholder="us-central1"
+								class="font-mono"
+							/>
+						</div>
+					</div>
+					<p class="text-xs text-muted-foreground">Express mode: API key only, leave project empty. Project mode: set project + location and paste service account JSON in the key field.</p>
+				</div>
+			{/if}
+			<Button onclick={savePlaygroundSettings}>
+				<Save class="mr-2 h-4 w-4" />
+				Save Playground settings
+			</Button>
 		</Card.Content>
 	</Card.Root>
 

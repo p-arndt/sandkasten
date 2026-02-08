@@ -3,6 +3,7 @@
 import { writable } from 'svelte/store';
 
 const STORAGE_KEY = 'sandkasten_api_key';
+const OPENAI_KEY_STORAGE = 'sandkasten_openai_api_key';
 
 export interface AuthState {
 	/** Whether an API key is stored (may still be invalid) */
@@ -41,3 +42,19 @@ export function initApiKeyFromStorage(api: { setAPIKey: (key: string | null) => 
 	api.setAPIKey(key);
 	authStore.update((s) => ({ ...s, hasKey: !!key }));
 }
+
+/** OpenAI API key for Playground (stored in localStorage, client-only). */
+export function getStoredOpenAIKey(): string | null {
+	if (typeof window === 'undefined') return null;
+	return localStorage.getItem(OPENAI_KEY_STORAGE);
+}
+
+export function setStoredOpenAIKey(key: string | null): void {
+	if (typeof window === 'undefined') return;
+	if (key === null || key === '') {
+		localStorage.removeItem(OPENAI_KEY_STORAGE);
+	} else {
+		localStorage.setItem(OPENAI_KEY_STORAGE, key);
+	}
+}
+

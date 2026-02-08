@@ -6,12 +6,16 @@ Features:
 - Rich terminal UI with boxes and colors
 - Streaming responses (token-by-token)
 - Conversation history with SQLite
+- Persistent workspace (files survive session destruction; see docs/features/workspaces.md)
 - Visual tool execution feedback
 - Message history display
 
 Usage:
     export OPENAI_API_KEY="sk-..."
+    export WORKSPACE_ID="my-project"   # optional; default: enhanced-agent-default
     uv run enhanced_agent.py
+
+Requires daemon config with workspace.enabled: true for persistent workspaces.
 """
 from agents.extensions.models.litellm_model import LitellmModel
 
@@ -42,6 +46,8 @@ SANDKASTEN_URL = "http://localhost:8080"
 SANDKASTEN_API_KEY = "sk-sandbox-quickstart"
 SESSION_DB = "conversation_history.db"
 MAX_TURNS = 50
+# Persistent workspace ID: files survive session destruction. Set workspace.enabled: true in daemon config.
+WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "enhanced-agent-default")
 
 # Global state
 console = Console()
@@ -137,7 +143,7 @@ The sandbox has:
 - Python 3 with pip and uv (fast package manager)
 - Pre-installed: requests, httpx, pandas, numpy, matplotlib, beautifulsoup4, pyyaml
 - Development tools: git, curl, wget, jq
-- Persistent /workspace directory
+- Persistent /workspace directory (backed by a named workspace; files survive session destruction)
 - Stateful shell (cd, env vars, background processes persist)
 - Full internet access
 
@@ -176,6 +182,7 @@ def print_session_info(session: Session):
     info.add_column(style="dim")
     info.add_column()
     info.add_row("Sandbox:", f"[green]{session.id}[/green]")
+    info.add_row("Workspace:", f"[cyan]{WORKSPACE_ID}[/cyan] [dim](persistent)[/dim]")
     info.add_row("Image:", "[cyan]sandbox-runtime:python[/cyan]")
     info.add_row("Network:", "[yellow]full[/yellow]")
     info.add_row("Packages:", "[dim]requests, httpx, pandas, numpy, matplotlib, bs4, yaml[/dim]")
@@ -191,6 +198,7 @@ def print_help():
 [bold]Commands:[/bold]
   • Type your message and press Enter
   • [cyan]/history[/cyan] - Show conversation history
+  • [cyan]/workspaces[/cyan] - List persistent workspaces
   • [cyan]/clear[/cyan] - Clear conversation history
   • [cyan]/help[/cyan] - Show this help
   • [cyan]/quit[/cyan] or [cyan]/exit[/cyan] - Exit
@@ -220,6 +228,30 @@ def _item_display_text(item: dict) -> str:
             return "\n".join(parts)
         return ""
     return str(item)
+
+
+async def show_workspaces():
+    """List persistent workspaces (see docs/features/workspaces.md)."""
+    if not client:
+        console.print("[yellow]No client available.[/yellow]")
+        return
+    try:
+        workspaces = await client.list_workspaces()
+    except Exception as e:
+        console.print(f"[red]Failed to list workspaces:[/red] {e}")
+        console.print("[dim]Ensure workspace.enabled: true in daemon config.[/dim]")
+        return
+    if not workspaces:
+        console.print("[dim]No workspaces yet (or workspace feature disabled).[/dim]")
+        return
+    table = Table(title="Workspaces")
+    table.add_column("ID", style="cyan")
+    table.add_column("Labels", style="dim")
+    for ws in workspaces:
+        labels = ws.get("labels") or {}
+        table.add_row(ws.get("id", ""), str(labels))
+    console.print(table)
+    console.print()
 
 
 async def show_history():
@@ -323,13 +355,16 @@ async def interactive_loop():
 
     print_header()
 
-    # Create client and sandbox session
-    with console.status("[cyan]Creating sandbox session...[/cyan]"):
+    # Create client and sandbox session with persistent workspace (see docs/features/workspaces.md)
+    with console.status("[cyan]Creating sandbox session (workspace=%s)...[/cyan]" % WORKSPACE_ID):
         client = SandboxClient(
             base_url=SANDKASTEN_URL,
             api_key=SANDKASTEN_API_KEY,
         )
-        sandbox_session = await client.create_session(image="sandbox-runtime:python")
+        sandbox_session = await client.create_session(
+            image="sandbox-runtime:python",
+            workspace_id=WORKSPACE_ID,
+        )
 
     print_session_info(sandbox_session)
 
@@ -358,6 +393,9 @@ async def interactive_loop():
                 continue
             elif user_input.lower() == "/history":
                 await show_history()
+                continue
+            elif user_input.lower() == "/workspaces":
+                await show_workspaces()
                 continue
             elif user_input.lower() == "/clear":
                 await conversation_session.clear_session()
@@ -394,6 +432,7 @@ async def interactive_loop():
 
         console.print(Panel(
             f"[green]✓[/green] Session [cyan]{sandbox_session.id if sandbox_session else 'unknown'}[/cyan] destroyed\n"
+            f"[dim]Workspace [cyan]{WORKSPACE_ID}[/cyan] preserved — run again to resume files.\n"
             f"[dim]Conversation history saved to {SESSION_DB}[/dim]",
             border_style="dim",
             box=box.ROUNDED,

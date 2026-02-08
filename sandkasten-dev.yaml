@@ -3,6 +3,10 @@ api_key: "sk-sandbox-quickstart"
 db_path: "./sandkasten.db"
 session_ttl_seconds: 1800
 
+workspace:
+  enabled: true
+  persist_by_default: false
+
 allowed_images:
   - "sandbox-runtime:base"
   - "sandbox-runtime:python"

@@ -12,12 +12,24 @@
 	import type { StatusResponse, SessionInfo } from '$lib/types';
 	import { toast } from 'svelte-sonner';
 
+	const FAILED_STATUS_LIMIT = 5;
+
 	let status = $state<StatusResponse | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let failedStatusCount = $state(0);
+	let pollingStopped = $state(false);
 	let refreshInterval: number;
 	let uptime = $state(0);
 	let uptimeInterval: number;
+
+	function stopPolling() {
+		if (refreshInterval) {
+			clearInterval(refreshInterval);
+			refreshInterval = 0;
+		}
+		pollingStopped = true;
+	}
 
 	async function loadStatus() {
 		try {
@@ -26,13 +38,26 @@
 			if (status) {
 				uptime = status.uptime_seconds;
 			}
+			failedStatusCount = 0;
 			loading = false;
+			// Resume polling if it was stopped and user triggered a successful refresh
+			if (pollingStopped) {
+				pollingStopped = false;
+				refreshInterval = setInterval(loadStatus, 5000) as unknown as number;
+			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load status';
 			loading = false;
+			failedStatusCount++;
 			toast.error('Failed to load status', {
 				description: error
 			});
+			if (failedStatusCount >= FAILED_STATUS_LIMIT) {
+				stopPolling();
+				toast.error('Auto-refresh paused', {
+					description: `${FAILED_STATUS_LIMIT} failed attempts. Click Refresh to retry.`
+				});
+			}
 		}
 	}
 
@@ -69,10 +94,15 @@
 			<h1 class="text-3xl font-bold tracking-tight">Overview</h1>
 			<p class="text-muted-foreground">Monitor your sandbox runtime environment</p>
 		</div>
-		<Button onclick={loadStatus} variant="outline" size="sm">
-			<Activity class="mr-2 h-4 w-4" />
-			Refresh
-		</Button>
+		<div class="flex items-center gap-2">
+			{#if pollingStopped}
+				<span class="text-sm text-muted-foreground">Auto-refresh paused</span>
+			{/if}
+			<Button onclick={loadStatus} variant="outline" size="sm">
+				<Activity class="mr-2 h-4 w-4" />
+				Refresh
+			</Button>
+		</div>
 	</div>
 
 	<!-- Stats Cards -->
