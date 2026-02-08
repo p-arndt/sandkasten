@@ -2,7 +2,7 @@
 
 from .client import SandboxClient
 from .session import Session
-from .types import ExecResult, SessionInfo
+from .types import ExecResult, ExecChunk, SessionInfo
 
 __version__ = "0.1.0"
-__all__ = ["SandboxClient", "Session", "ExecResult", "SessionInfo"]
+__all__ = ["SandboxClient", "Session", "ExecResult", "ExecChunk", "SessionInfo"]

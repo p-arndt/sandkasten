@@ -41,9 +41,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/sessions", s.handleListSessions)
 	s.mux.HandleFunc("GET /v1/sessions/{id}", s.handleGetSession)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/exec", s.handleExec)
+	s.mux.HandleFunc("POST /v1/sessions/{id}/exec/stream", s.handleExecStream)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/fs/write", s.handleWrite)
 	s.mux.HandleFunc("GET /v1/sessions/{id}/fs/read", s.handleRead)
 	s.mux.HandleFunc("DELETE /v1/sessions/{id}", s.handleDestroy)
+
+	// Workspace routes (with auth)
+	s.mux.HandleFunc("GET /v1/workspaces", s.handleListWorkspaces)
+	s.mux.HandleFunc("DELETE /v1/workspaces/{id}", s.handleDeleteWorkspace)
 
 	// Web UI routes (no auth - consider adding auth in production)
 	s.mux.HandleFunc("GET /", s.webHandler.ServeStatusPage)

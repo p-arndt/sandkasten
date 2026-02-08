@@ -23,41 +23,45 @@
 - [x] Updated all SQL queries
 - [x] Database migration for workspace_id column
 
-## 🚧 In Progress
+## ✅ Completed (Full Implementation)
 
 ### 5. Docker Client Updates
-- [ ] Mount workspace volumes to containers
-- [ ] Update CreateContainer to accept workspace_id
-- [ ] Handle both ephemeral and persistent modes
+- [x] Mount workspace volumes to containers
+- [x] Update CreateContainer to accept workspace_id
+- [x] Handle both ephemeral and persistent modes
+- [x] Support custom labels for pool containers
 
 ### 6. Session Manager Updates
-- [ ] Integrate workspace manager
-- [ ] Integrate pool manager
-- [ ] Update Create to use pool when available
-- [ ] Handle workspace volume mounting
+- [x] Integrate workspace manager
+- [x] Integrate pool manager
+- [x] Update Create to use pool when available
+- [x] Handle workspace volume mounting
+- [x] Auto-create workspace volumes on demand
+- [x] Add workspace management methods (List, Delete)
 
 ### 7. API Updates
-- [ ] Add `workspace_id` param to POST /v1/sessions
-- [ ] Add GET /v1/workspaces
-- [ ] Add DELETE /v1/workspaces/{id}
-- [ ] Update session responses to include workspace_id
+- [x] Add `workspace_id` param to POST /v1/sessions
+- [x] Add GET /v1/workspaces
+- [x] Add DELETE /v1/workspaces/{id}
+- [x] Update session responses to include workspace_id
 
 ### 8. Daemon Integration
-- [ ] Wire up workspace manager
-- [ ] Wire up pool manager
-- [ ] Start pool on daemon startup
-- [ ] Stop pool on daemon shutdown
+- [x] Wire up workspace manager
+- [x] Wire up pool manager
+- [x] Start pool on daemon startup
+- [x] Stop pool on daemon shutdown
+- [x] Expose Docker client for workspace manager
 
 ### 9. SDK Updates
-- [ ] Update TypeScript SDK for workspace_id
-- [ ] Update Python SDK for workspace_id
-- [ ] Add workspace management methods
+- [x] Update Python SDK for workspace_id
+- [x] Add workspace management methods to Python SDK
+- [ ] Update TypeScript SDK for workspace_id (TODO)
 
 ### 10. Documentation
-- [ ] Update CHANGELOG.md
-- [ ] Document workspace persistence feature
-- [ ] Document pool configuration
-- [ ] Example config files
+- [x] Update CHANGELOG.md
+- [x] Document workspace persistence feature
+- [x] Document pool configuration
+- [x] Example config files (sandkasten-full.yaml)
 
 ## Configuration Example
 

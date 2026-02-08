@@ -23,9 +23,10 @@ type Request struct {
 type RequestType string
 
 const (
-	RequestExec  RequestType = "exec"
-	RequestWrite RequestType = "write"
-	RequestRead  RequestType = "read"
+	RequestExec       RequestType = "exec"
+	RequestExecStream RequestType = "exec_stream" // streaming exec
+	RequestWrite      RequestType = "write"
+	RequestRead       RequestType = "read"
 )
 
 // Response is the envelope sent from runner → daemon.
@@ -40,6 +41,10 @@ type Response struct {
 	Truncated  bool   `json:"truncated,omitempty"`
 	DurationMs int64  `json:"duration_ms,omitempty"`
 
+	// Streaming exec fields (for exec_chunk)
+	Chunk     string `json:"chunk,omitempty"`      // output chunk
+	Timestamp int64  `json:"timestamp,omitempty"`  // unix timestamp ms
+
 	// Write response fields
 	OK bool `json:"ok,omitempty"`
 
@@ -53,11 +58,13 @@ type Response struct {
 type ResponseType string
 
 const (
-	ResponseExec  ResponseType = "exec"
-	ResponseWrite ResponseType = "write"
-	ResponseRead  ResponseType = "read"
-	ResponseError ResponseType = "error"
-	ResponseReady ResponseType = "ready"
+	ResponseExec       ResponseType = "exec"
+	ResponseExecChunk  ResponseType = "exec_chunk"  // streaming output chunk
+	ResponseExecDone   ResponseType = "exec_done"   // streaming complete
+	ResponseWrite      ResponseType = "write"
+	ResponseRead       ResponseType = "read"
+	ResponseError      ResponseType = "error"
+	ResponseReady      ResponseType = "ready"
 )
 
 // ReadyMessage is emitted by the runner on startup.

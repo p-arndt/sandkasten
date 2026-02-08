@@ -80,8 +80,8 @@ func (p *Pool) Stop(ctx context.Context) {
 	for image, ch := range p.pools {
 		close(ch)
 		for containerID := range ch {
-			p.logger.Info("cleaning up pooled container", "image", image, "container", containerID)
-			p.docker.RemoveContainer(ctx, containerID)
+			p.logger.Info("cleaning up pooled container", "image", image, "container", containerID[:12])
+			p.docker.RemoveContainer(ctx, containerID, "pool-cleanup")
 		}
 	}
 }
@@ -114,7 +114,7 @@ func (p *Pool) Return(ctx context.Context, image, containerID string) {
 
 	if !exists {
 		// Pool not configured - remove container
-		p.docker.RemoveContainer(ctx, containerID)
+		p.docker.RemoveContainer(ctx, containerID, "pool-return")
 		return
 	}
 
@@ -124,7 +124,7 @@ func (p *Pool) Return(ctx context.Context, image, containerID string) {
 	default:
 		// Pool full - remove excess container
 		p.logger.Info("pool full, removing container", "image", image, "container", containerID[:12])
-		p.docker.RemoveContainer(ctx, containerID)
+		p.docker.RemoveContainer(ctx, containerID, "pool-overflow")
 	}
 }
 
@@ -173,10 +173,15 @@ func (p *Pool) refill(ctx context.Context, image string, targetSize int) {
 
 		// Create container with pool labels
 		sessionID := generatePoolSessionID()
-		containerID, err := p.docker.CreateContainer(ctx, sessionID, image, p.cfg.Defaults, map[string]string{
-			"sandkasten.pool":     "true",
-			"sandkasten.image":    image,
-			"sandkasten.pooled_at": time.Now().Format(time.RFC3339),
+		containerID, err := p.docker.CreateContainer(ctx, docker.CreateOpts{
+			SessionID: sessionID,
+			Image:     image,
+			Defaults:  p.cfg.Defaults,
+			Labels: map[string]string{
+				"sandkasten.pool":      "true",
+				"sandkasten.image":     image,
+				"sandkasten.pooled_at": time.Now().Format(time.RFC3339),
+			},
 		})
 		if err != nil {
 			p.logger.Error("failed to create pooled container", "image", image, "error", err)
@@ -190,7 +195,7 @@ func (p *Pool) refill(ctx context.Context, image string, targetSize int) {
 			p.logger.Info("created pooled container", "image", image, "container", containerID[:12])
 		default:
 			// Pool filled while we were creating - remove this one
-			p.docker.RemoveContainer(ctx, containerID)
+			p.docker.RemoveContainer(ctx, containerID, "pool-excess")
 		}
 	}
 }

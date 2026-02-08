@@ -10,26 +10,32 @@ import (
 
 	"github.com/p-arndt/sandkasten/internal/config"
 	"github.com/p-arndt/sandkasten/internal/docker"
+	"github.com/p-arndt/sandkasten/internal/pool"
 	"github.com/p-arndt/sandkasten/internal/store"
+	"github.com/p-arndt/sandkasten/internal/workspace"
 	"github.com/p-arndt/sandkasten/protocol"
 )
 
 type Manager struct {
-	cfg    *config.Config
-	store  *store.Store
-	docker *docker.Client
+	cfg       *config.Config
+	store     *store.Store
+	docker    *docker.Client
+	pool      *pool.Pool
+	workspace *workspace.Manager
 
 	// Per-session mutexes to serialize exec calls.
 	locks   map[string]*sync.Mutex
 	locksMu sync.Mutex
 }
 
-func NewManager(cfg *config.Config, st *store.Store, dc *docker.Client) *Manager {
+func NewManager(cfg *config.Config, st *store.Store, dc *docker.Client, p *pool.Pool, ws *workspace.Manager) *Manager {
 	return &Manager{
-		cfg:    cfg,
-		store:  st,
-		docker: dc,
-		locks:  make(map[string]*sync.Mutex),
+		cfg:       cfg,
+		store:     st,
+		docker:    dc,
+		pool:      p,
+		workspace: ws,
+		locks:     make(map[string]*sync.Mutex),
 	}
 }
 
@@ -51,17 +57,19 @@ func (m *Manager) removeSessionLock(id string) {
 }
 
 type CreateOpts struct {
-	Image      string
-	TTLSeconds int
+	Image       string
+	TTLSeconds  int
+	WorkspaceID string // optional persistent workspace
 }
 
 type SessionInfo struct {
-	ID        string    `json:"id"`
-	Image     string    `json:"image"`
-	Status    string    `json:"status"`
-	Cwd       string    `json:"cwd"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
+	ID          string    `json:"id"`
+	Image       string    `json:"image"`
+	Status      string    `json:"status"`
+	Cwd         string    `json:"cwd"`
+	WorkspaceID string    `json:"workspace_id,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 type ExecResult struct {
@@ -70,6 +78,15 @@ type ExecResult struct {
 	Output     string `json:"output"`
 	Truncated  bool   `json:"truncated"`
 	DurationMs int64  `json:"duration_ms"`
+}
+
+type ExecChunk struct {
+	Output     string `json:"output"`      // output chunk
+	Timestamp  int64  `json:"timestamp"`   // unix timestamp ms
+	ExitCode   int    `json:"exit_code"`   // only set on final chunk
+	Cwd        string `json:"cwd"`         // only set on final chunk
+	DurationMs int64  `json:"duration_ms"` // only set on final chunk
+	Done       bool   `json:"done"`        // true on final chunk
 }
 
 func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, error) {
@@ -87,17 +104,47 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 		ttl = m.cfg.SessionTTLSeconds
 	}
 
+	workspaceID := opts.WorkspaceID
+
+	// Create persistent workspace if needed
+	if workspaceID != "" && m.cfg.Workspace.Enabled {
+		exists, err := m.workspace.Exists(ctx, "sandkasten-ws-"+workspaceID)
+		if err != nil {
+			return nil, fmt.Errorf("check workspace: %w", err)
+		}
+		if !exists {
+			if err := m.workspace.Create(ctx, "sandkasten-ws-"+workspaceID, map[string]string{
+				"sandkasten.workspace_id": workspaceID,
+			}); err != nil {
+				return nil, fmt.Errorf("create workspace: %w", err)
+			}
+		}
+	}
+
 	sessionID := uuid.New().String()[:12]
 	now := time.Now().UTC()
 	expiresAt := now.Add(time.Duration(ttl) * time.Second)
 
-	containerID, err := m.docker.CreateContainer(ctx, docker.CreateOpts{
-		SessionID: sessionID,
-		Image:     image,
-		Defaults:  m.cfg.Defaults,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create container: %w", err)
+	var containerID string
+	var err error
+	fromPool := false
+
+	// Try to get from pool first
+	if m.pool != nil {
+		containerID, fromPool = m.pool.Get(ctx, image)
+	}
+
+	if !fromPool {
+		// Create new container
+		containerID, err = m.docker.CreateContainer(ctx, docker.CreateOpts{
+			SessionID:   sessionID,
+			Image:       image,
+			Defaults:    m.cfg.Defaults,
+			WorkspaceID: workspaceID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create container: %w", err)
+		}
 	}
 
 	sess := &store.Session{
@@ -106,6 +153,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 		ContainerID:  containerID,
 		Status:       "running",
 		Cwd:          "/workspace",
+		WorkspaceID:  workspaceID,
 		CreatedAt:    now,
 		ExpiresAt:    expiresAt,
 		LastActivity: now,
@@ -116,16 +164,19 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 		return nil, fmt.Errorf("store session: %w", err)
 	}
 
-	// Give the runner a moment to start.
-	time.Sleep(500 * time.Millisecond)
+	// Give the runner a moment to start (skip if from pool)
+	if !fromPool {
+		time.Sleep(500 * time.Millisecond)
+	}
 
 	return &SessionInfo{
-		ID:        sessionID,
-		Image:     image,
-		Status:    "running",
-		Cwd:       "/workspace",
-		CreatedAt: now,
-		ExpiresAt: expiresAt,
+		ID:          sessionID,
+		Image:       image,
+		Status:      "running",
+		Cwd:         "/workspace",
+		WorkspaceID: workspaceID,
+		CreatedAt:   now,
+		ExpiresAt:   expiresAt,
 	}, nil
 }
 
@@ -138,12 +189,13 @@ func (m *Manager) Get(ctx context.Context, id string) (*SessionInfo, error) {
 		return nil, fmt.Errorf("session not found: %s", id)
 	}
 	return &SessionInfo{
-		ID:        sess.ID,
-		Image:     sess.Image,
-		Status:    sess.Status,
-		Cwd:       sess.Cwd,
-		CreatedAt: sess.CreatedAt,
-		ExpiresAt: sess.ExpiresAt,
+		ID:          sess.ID,
+		Image:       sess.Image,
+		Status:      sess.Status,
+		Cwd:         sess.Cwd,
+		WorkspaceID: sess.WorkspaceID,
+		CreatedAt:   sess.CreatedAt,
+		ExpiresAt:   sess.ExpiresAt,
 	}, nil
 }
 
@@ -155,12 +207,13 @@ func (m *Manager) List(ctx context.Context) ([]SessionInfo, error) {
 	result := make([]SessionInfo, len(sessions))
 	for i, s := range sessions {
 		result[i] = SessionInfo{
-			ID:        s.ID,
-			Image:     s.Image,
-			Status:    s.Status,
-			Cwd:       s.Cwd,
-			CreatedAt: s.CreatedAt,
-			ExpiresAt: s.ExpiresAt,
+			ID:          s.ID,
+			Image:       s.Image,
+			Status:      s.Status,
+			Cwd:         s.Cwd,
+			WorkspaceID: s.WorkspaceID,
+			CreatedAt:   s.CreatedAt,
+			ExpiresAt:   s.ExpiresAt,
 		}
 	}
 	return result, nil
@@ -222,6 +275,74 @@ func (m *Manager) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int
 		Truncated:  resp.Truncated,
 		DurationMs: resp.DurationMs,
 	}, nil
+}
+
+// ExecStream executes a command and streams output chunks via channel.
+// The channel is closed when execution completes or errors.
+// The final chunk has Done=true and includes exit code, cwd, duration.
+func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeoutMs int, chunkChan chan<- ExecChunk) error {
+	sess, err := m.store.GetSession(sessionID)
+	if err != nil {
+		return err
+	}
+	if sess == nil {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	if sess.Status != "running" {
+		return fmt.Errorf("session not running: %s (status=%s)", sessionID, sess.Status)
+	}
+	if time.Now().After(sess.ExpiresAt) {
+		return fmt.Errorf("session expired: %s", sessionID)
+	}
+
+	// Enforce max timeout
+	if timeoutMs <= 0 || timeoutMs > m.cfg.Defaults.MaxExecTimeoutMs {
+		timeoutMs = m.cfg.Defaults.MaxExecTimeoutMs
+	}
+
+	// Serialize exec per session
+	mu := m.sessionLock(sessionID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	execID := uuid.New().String()[:8]
+	startTime := time.Now()
+
+	// For now, use blocking exec and send as single chunk
+	// TODO: Implement true streaming at runner level
+	resp, err := m.docker.ExecRunner(ctx, sess.ContainerID, protocol.Request{
+		ID:        execID,
+		Type:      protocol.RequestExec,
+		Cmd:       cmd,
+		TimeoutMs: timeoutMs,
+	})
+	if err != nil {
+		return fmt.Errorf("exec: %w", err)
+	}
+
+	if resp.Type == protocol.ResponseError {
+		return fmt.Errorf("runner error: %s", resp.Error)
+	}
+
+	// Update session activity + extend lease
+	newExpiry := time.Now().UTC().Add(time.Duration(m.cfg.SessionTTLSeconds) * time.Second)
+	cwd := resp.Cwd
+	if cwd == "" {
+		cwd = sess.Cwd
+	}
+	m.store.UpdateSessionActivity(sessionID, cwd, newExpiry)
+
+	// Send final chunk with complete output
+	chunkChan <- ExecChunk{
+		Output:     resp.Output,
+		Timestamp:  startTime.UnixMilli(),
+		ExitCode:   resp.ExitCode,
+		Cwd:        cwd,
+		DurationMs: resp.DurationMs,
+		Done:       true,
+	}
+
+	return nil
 }
 
 func (m *Manager) Write(ctx context.Context, sessionID, path string, content []byte, isBase64 bool) error {
@@ -330,4 +451,20 @@ func (m *Manager) isImageAllowed(image string) bool {
 		}
 	}
 	return false
+}
+
+// Workspace management methods
+
+func (m *Manager) ListWorkspaces(ctx context.Context) ([]*workspace.Workspace, error) {
+	if !m.cfg.Workspace.Enabled {
+		return nil, fmt.Errorf("workspaces not enabled")
+	}
+	return m.workspace.List(ctx)
+}
+
+func (m *Manager) DeleteWorkspace(ctx context.Context, workspaceID string) error {
+	if !m.cfg.Workspace.Enabled {
+		return fmt.Errorf("workspaces not enabled")
+	}
+	return m.workspace.Delete(ctx, "sandkasten-ws-"+workspaceID)
 }

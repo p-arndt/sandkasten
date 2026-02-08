@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -9,8 +10,9 @@ import (
 )
 
 type createSessionRequest struct {
-	Image      string `json:"image"`
-	TTLSeconds int    `json:"ttl_seconds"`
+	Image       string `json:"image"`
+	TTLSeconds  int    `json:"ttl_seconds"`
+	WorkspaceID string `json:"workspace_id"` // optional persistent workspace
 }
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -21,8 +23,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	info, err := s.manager.Create(r.Context(), session.CreateOpts{
-		Image:      req.Image,
-		TTLSeconds: req.TTLSeconds,
+		Image:       req.Image,
+		TTLSeconds:  req.TTLSeconds,
+		WorkspaceID: req.WorkspaceID,
 	})
 	if err != nil {
 		s.logger.Error("create session", "error", err)
@@ -57,6 +60,7 @@ type execRequest struct {
 	TimeoutMs int    `json:"timeout_ms"`
 }
 
+// handleExec handles blocking exec (returns when complete)
 func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -79,6 +83,99 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleExecStream handles streaming exec with Server-Sent Events
+func (s *Server) handleExecStream(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req execRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+
+	if req.Cmd == "" {
+		writeError(w, http.StatusBadRequest, "cmd is required")
+		return
+	}
+
+	// Set up SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	// Stream exec chunks
+	chunkChan := make(chan session.ExecChunk, 10)
+	errChan := make(chan error, 1)
+
+	go func() {
+		err := s.manager.ExecStream(r.Context(), id, req.Cmd, req.TimeoutMs, chunkChan)
+		if err != nil {
+			errChan <- err
+		}
+		close(chunkChan)
+		close(errChan)
+	}()
+
+	// Send chunks as SSE
+	for {
+		select {
+		case chunk, ok := <-chunkChan:
+			if !ok {
+				// Channel closed, we're done
+				return
+			}
+
+			if chunk.Done {
+				// For v0.1: send output as chunk event first (if present)
+				// This handles the case where manager sends a single chunk with both output and Done=true
+				if chunk.Output != "" {
+					chunkJSON, _ := json.Marshal(map[string]interface{}{
+						"chunk":     chunk.Output,
+						"timestamp": chunk.Timestamp,
+					})
+					fmt.Fprintf(w, "event: chunk\ndata: %s\n\n", chunkJSON)
+					flusher.Flush()
+				}
+
+				// Then send completion event with metadata
+				fmt.Fprintf(w, "event: done\ndata: {\"exit_code\":%d,\"cwd\":\"%s\",\"duration_ms\":%d}\n\n",
+					chunk.ExitCode, chunk.Cwd, chunk.DurationMs)
+				flusher.Flush()
+				return
+			}
+
+			// Send chunk event (for future true streaming in v0.2)
+			if chunk.Output != "" {
+				chunkJSON, _ := json.Marshal(map[string]interface{}{
+					"chunk":     chunk.Output,
+					"timestamp": chunk.Timestamp,
+				})
+				fmt.Fprintf(w, "event: chunk\ndata: %s\n\n", chunkJSON)
+				flusher.Flush()
+			}
+
+		case err := <-errChan:
+			if err != nil {
+				errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
+				fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
+				flusher.Flush()
+				return
+			}
+
+		case <-r.Context().Done():
+			// Client disconnected
+			return
+		}
+	}
 }
 
 type writeRequest struct {
@@ -153,6 +250,29 @@ func (s *Server) handleDestroy(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.manager.Destroy(r.Context(), id); err != nil {
 		s.logger.Error("destroy", "session_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// Workspace handlers
+
+func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
+	workspaces, err := s.manager.ListWorkspaces(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workspaces": workspaces})
+}
+
+func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	if err := s.manager.DeleteWorkspace(r.Context(), id); err != nil {
+		s.logger.Error("delete workspace", "workspace_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -14,9 +14,11 @@ import (
 	"github.com/p-arndt/sandkasten/internal/api"
 	"github.com/p-arndt/sandkasten/internal/config"
 	"github.com/p-arndt/sandkasten/internal/docker"
+	"github.com/p-arndt/sandkasten/internal/pool"
 	"github.com/p-arndt/sandkasten/internal/reaper"
 	"github.com/p-arndt/sandkasten/internal/session"
 	"github.com/p-arndt/sandkasten/internal/store"
+	"github.com/p-arndt/sandkasten/internal/workspace"
 )
 
 func main() {
@@ -58,7 +60,26 @@ func main() {
 	}
 	logger.Info("docker connection OK")
 
-	mgr := session.NewManager(cfg, st, dc)
+	// Initialize workspace manager
+	wm := workspace.NewManager(dc.DockerClient())
+
+	// Initialize pool manager
+	poolMgr := pool.New(cfg, dc, st, logger)
+
+	// Start pool if enabled
+	if cfg.Pool.Enabled && len(cfg.Pool.Images) > 0 {
+		poolConfigs := make([]pool.PoolConfig, 0, len(cfg.Pool.Images))
+		for image, size := range cfg.Pool.Images {
+			poolConfigs = append(poolConfigs, pool.PoolConfig{
+				Image: image,
+				Size:  size,
+			})
+		}
+		poolMgr.Start(ctx, poolConfigs)
+		logger.Info("container pool started", "images", cfg.Pool.Images)
+	}
+
+	mgr := session.NewManager(cfg, st, dc, poolMgr, wm)
 
 	rpr := reaper.New(st, dc, 30*time.Second, logger)
 	go rpr.Run(ctx)
@@ -81,6 +102,11 @@ func main() {
 		<-sigCh
 		logger.Info("shutting down...")
 		cancel()
+
+		// Stop pool
+		if cfg.Pool.Enabled {
+			poolMgr.Stop(ctx)
+		}
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()

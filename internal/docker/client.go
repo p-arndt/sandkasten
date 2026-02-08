@@ -35,6 +35,11 @@ func (c *Client) Close() error {
 	return c.docker.Close()
 }
 
+// DockerClient returns the underlying Docker client (for workspace manager).
+func (c *Client) DockerClient() *client.Client {
+	return c.docker
+}
+
 // Ping verifies the Docker daemon is reachable.
 func (c *Client) Ping(ctx context.Context) error {
 	_, err := c.docker.Ping(ctx)
@@ -42,35 +47,53 @@ func (c *Client) Ping(ctx context.Context) error {
 }
 
 type CreateOpts struct {
-	SessionID string
-	Image     string
-	Defaults  config.Defaults
+	SessionID   string
+	Image       string
+	Defaults    config.Defaults
+	WorkspaceID string            // optional persistent workspace volume
+	Labels      map[string]string // additional labels
 }
 
 // CreateContainer creates and starts a sandbox container.
 func (c *Client) CreateContainer(ctx context.Context, opts CreateOpts) (string, error) {
 	labels := map[string]string{
 		labelPrefix + "session_id": opts.SessionID,
-		labelPrefix + "managed":   "true",
+		labelPrefix + "managed":    "true",
 	}
 
-	// Resource limits.
+	// Add custom labels
+	for k, v := range opts.Labels {
+		labels[k] = v
+	}
+
+	// Add workspace label if present
+	if opts.WorkspaceID != "" {
+		labels[labelPrefix+"workspace_id"] = opts.WorkspaceID
+	}
+
+	// Resource limits
 	resources := container.Resources{
 		NanoCPUs:  int64(opts.Defaults.CPULimit * 1e9),
 		Memory:    int64(opts.Defaults.MemLimitMB) * 1024 * 1024,
 		PidsLimit: int64Ptr(int64(opts.Defaults.PidsLimit)),
 	}
 
+	// Determine workspace volume source
+	workspaceSource := "sandkasten-ws-" + opts.SessionID // default: ephemeral
+	if opts.WorkspaceID != "" {
+		workspaceSource = "sandkasten-ws-" + opts.WorkspaceID // persistent
+	}
+
 	hostCfg := &container.HostConfig{
-		Resources:    resources,
-		AutoRemove:   false,
+		Resources:      resources,
+		AutoRemove:     false,
 		ReadonlyRootfs: opts.Defaults.ReadonlyRootfs,
-		SecurityOpt:  []string{"no-new-privileges"},
-		CapDrop:      []string{"ALL"},
+		SecurityOpt:    []string{"no-new-privileges"},
+		CapDrop:        []string{"ALL"},
 		Mounts: []mount.Mount{
 			{
 				Type:   mount.TypeVolume,
-				Source: "sandkasten_ws_" + opts.SessionID,
+				Source: workspaceSource,
 				Target: "/workspace",
 			},
 			{

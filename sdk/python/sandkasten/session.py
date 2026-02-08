@@ -1,11 +1,12 @@
 """Sandbox session management."""
 
 import base64
-from typing import TYPE_CHECKING
+import json
+from typing import TYPE_CHECKING, AsyncIterator
 
 import httpx
 
-from .types import ExecResult, SessionInfo
+from .types import ExecResult, ExecChunk, SessionInfo
 
 if TYPE_CHECKING:
     from .client import SandboxClient
@@ -82,6 +83,74 @@ class Session:
             truncated=data.get("truncated", False),
             duration_ms=data.get("duration_ms", 0),
         )
+
+    async def exec_stream(
+        self,
+        cmd: str,
+        *,
+        timeout_ms: int = 30000,
+    ) -> AsyncIterator[ExecChunk]:
+        """Execute a command and stream output chunks in real-time.
+
+        The sandbox maintains a persistent bash shell, so:
+        - Directory changes (cd) persist
+        - Environment variables persist
+        - Background processes remain running
+
+        Args:
+            cmd: Shell command to execute
+            timeout_ms: Timeout in milliseconds (default 30000)
+
+        Yields:
+            ExecChunk objects with output and metadata
+            Final chunk has done=True with exit code and cwd
+
+        Raises:
+            httpx.HTTPError: If the request fails
+
+        Example:
+            >>> async for chunk in session.exec_stream("pip install pandas"):
+            ...     print(chunk.output, end='', flush=True)
+            ...     if chunk.done:
+            ...         print(f"\\nExit code: {chunk.exit_code}")
+        """
+        async with self._client._http.stream(
+            "POST",
+            f"/v1/sessions/{self._id}/exec/stream",
+            json={"cmd": cmd, "timeout_ms": timeout_ms},
+        ) as resp:
+            resp.raise_for_status()
+
+            async for line in resp.aiter_lines():
+                if not line.strip():
+                    continue
+
+                # Parse SSE format: "event: <type>\ndata: <json>"
+                if line.startswith("event: "):
+                    event_type = line[7:].strip()
+                    continue
+
+                if line.startswith("data: "):
+                    data_json = line[6:].strip()
+                    data = json.loads(data_json)
+
+                    if event_type == "chunk":
+                        yield ExecChunk(
+                            output=data.get("chunk", ""),
+                            timestamp=data.get("timestamp", 0),
+                            done=False,
+                        )
+                    elif event_type == "done":
+                        yield ExecChunk(
+                            output="",
+                            timestamp=0,
+                            done=True,
+                            exit_code=data.get("exit_code", 0),
+                            cwd=data.get("cwd", ""),
+                            duration_ms=data.get("duration_ms", 0),
+                        )
+                    elif event_type == "error":
+                        raise Exception(data.get("error", "Unknown error"))
 
     async def write(
         self,

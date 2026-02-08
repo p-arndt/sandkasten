@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 )
@@ -56,10 +57,11 @@ func (m *Manager) Exists(ctx context.Context, workspaceID string) (bool, error) 
 
 // List returns all workspace volumes.
 func (m *Manager) List(ctx context.Context) ([]*Workspace, error) {
+	f := filters.NewArgs()
+	f.Add("label", "sandkasten.workspace=true")
+
 	vols, err := m.docker.VolumeList(ctx, volume.ListOptions{
-		Filters: map[string][]string{
-			"label": {"sandkasten.workspace=true"},
-		},
+		Filters: f,
 	})
 	if err != nil {
 		return nil, err

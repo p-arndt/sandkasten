@@ -25,6 +25,29 @@ class ExecResult:
 
 
 @dataclass
+class ExecChunk:
+    """Chunk of output from streaming command execution."""
+
+    output: str
+    """Output chunk text"""
+
+    timestamp: int
+    """Unix timestamp in milliseconds"""
+
+    done: bool = False
+    """Whether this is the final chunk"""
+
+    exit_code: int = 0
+    """Exit code (only set when done=True)"""
+
+    cwd: str = ""
+    """Current working directory (only set when done=True)"""
+
+    duration_ms: int = 0
+    """Execution duration (only set when done=True)"""
+
+
+@dataclass
 class SessionInfo:
     """Information about a sandbox session."""
 
