@@ -6,6 +6,7 @@ export interface SandboxClientOptions {
 export interface CreateSessionOptions {
   image?: string;
   ttlSeconds?: number;
+  workspaceId?: string;
 }
 
 export interface SessionInfo {
@@ -15,6 +16,8 @@ export interface SessionInfo {
   cwd: string;
   created_at: string;
   expires_at: string;
+  workspace_id?: string;
+  last_activity?: string;
 }
 
 export interface ExecResult {
@@ -29,4 +32,20 @@ export interface ReadResult {
   path: string;
   content_base64: string;
   truncated: boolean;
+}
+
+export interface WorkspaceInfo {
+  id: string;
+  created_at: string;
+  session_count: number;
+  active_session_count: number;
+}
+
+export interface ExecChunk {
+  output: string;
+  timestamp: number;
+  exit_code?: number;
+  cwd?: string;
+  duration_ms?: number;
+  done: boolean;
 }

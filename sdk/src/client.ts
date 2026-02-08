@@ -1,5 +1,5 @@
 import { Session } from "./session.js";
-import type { SandboxClientOptions, CreateSessionOptions, SessionInfo } from "./types.js";
+import type { SandboxClientOptions, CreateSessionOptions, SessionInfo, WorkspaceInfo } from "./types.js";
 
 export class SandboxClient {
   private baseUrl: string;
@@ -16,6 +16,7 @@ export class SandboxClient {
       body: JSON.stringify({
         image: opts?.image,
         ttl_seconds: opts?.ttlSeconds,
+        workspace_id: opts?.workspaceId,
       }),
     });
 
@@ -31,6 +32,18 @@ export class SandboxClient {
   async listSessions(): Promise<SessionInfo[]> {
     const res = await this.fetch("/v1/sessions");
     return res.json();
+  }
+
+  async listWorkspaces(): Promise<WorkspaceInfo[]> {
+    const res = await this.fetch("/v1/workspaces");
+    const data = await res.json();
+    return data.workspaces || [];
+  }
+
+  async deleteWorkspace(id: string): Promise<void> {
+    await this.fetch(`/v1/workspaces/${id}`, {
+      method: "DELETE",
+    });
   }
 
   /** @internal */

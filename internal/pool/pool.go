@@ -72,12 +72,18 @@ func (p *Pool) Stop(ctx context.Context) {
 	}
 	p.running = false
 	close(p.stopCh)
+
+	// Copy channel references while holding lock to avoid race with refill workers
+	poolCopy := make(map[string]chan string)
+	for image, ch := range p.pools {
+		poolCopy[image] = ch
+	}
 	p.mu.Unlock()
 
 	p.logger.Info("stopping container pool")
 
-	// Drain and cleanup all pools
-	for image, ch := range p.pools {
+	// Drain and cleanup all pools (using our safe copy)
+	for image, ch := range poolCopy {
 		close(ch)
 		for containerID := range ch {
 			p.logger.Info("cleaning up pooled container", "image", image, "container", containerID[:12])

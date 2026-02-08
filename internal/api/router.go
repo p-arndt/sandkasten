@@ -50,15 +50,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/workspaces", s.handleListWorkspaces)
 	s.mux.HandleFunc("DELETE /v1/workspaces/{id}", s.handleDeleteWorkspace)
 
-	// Web UI routes (no auth - consider adding auth in production)
+	// Web UI routes (no auth for viewing)
 	s.mux.HandleFunc("GET /", s.webHandler.ServeStatusPage)
 	s.mux.HandleFunc("GET /settings", s.webHandler.ServeSettingsPage)
 
-	// Web API routes (no auth - consider adding auth in production)
+	// Web API routes (read-only: no auth, modifications: requires auth if API key set)
 	s.mux.HandleFunc("GET /api/status", s.webHandler.GetStatus)
 	s.mux.HandleFunc("GET /api/config", s.webHandler.GetConfig)
-	s.mux.HandleFunc("PUT /api/config", s.webHandler.UpdateConfig)
-	s.mux.HandleFunc("POST /api/config/validate", s.webHandler.ValidateConfig)
+	s.mux.HandleFunc("PUT /api/config", s.webHandler.UpdateConfig)       // Protected
+	s.mux.HandleFunc("POST /api/config/validate", s.webHandler.ValidateConfig) // Protected
 
 	// Health check (no auth)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

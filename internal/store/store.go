@@ -2,10 +2,16 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	_ "modernc.org/sqlite"
+)
+
+// Sentinel errors
+var (
+	ErrNotFound = errors.New("not found")
 )
 
 type Session struct {

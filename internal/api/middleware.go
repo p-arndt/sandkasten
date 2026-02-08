@@ -14,13 +14,18 @@ const requestIDKey contextKey = "request_id"
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for health check and web UI routes
+		// Skip auth for health check and read-only web UI routes
 		skipAuthPaths := []string{
 			"/healthz",
 			"/",
 			"/settings",
 			"/api/status",
-			"/api/config",
+		}
+
+		// Allow read-only config access without auth
+		if r.URL.Path == "/api/config" && r.Method == "GET" {
+			next.ServeHTTP(w, r)
+			return
 		}
 
 		for _, path := range skipAuthPaths {

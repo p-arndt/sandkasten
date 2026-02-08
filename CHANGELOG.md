@@ -2,7 +2,29 @@
 
 ## [Unreleased] - 2026-02-08
 
+### Security
+- **CRITICAL:** Fixed path traversal vulnerability that allowed reading files outside `/workspace`
+- **CRITICAL:** Fixed race condition in container pool cleanup that could cause crashes
+- Added authentication requirement for config modification endpoints (`PUT /api/config`, `POST /api/config/validate`)
+- Reduced Unix socket permissions from `0666` to `0600` for better security
+- Enhanced command execution safety by using `printf` instead of `echo` for sentinel markers
+- Fixed silent JSON marshaling errors that could hide failures
+
 ### Added
+- **TypeScript SDK** enhancements:
+  - Full workspace support (create sessions with `workspaceId`, list/delete workspaces)
+  - Streaming exec support via `execStream()` async iterator
+  - Convenience methods `writeText()` and `info()`
+  - Now at feature parity with Python SDK
+- **Structured Error Responses**:
+  - Error codes: `SESSION_NOT_FOUND`, `SESSION_EXPIRED`, `INVALID_IMAGE`, `COMMAND_TIMEOUT`, etc.
+  - Proper HTTP status codes (404, 410, 504, etc.) based on error type
+  - Detailed validation error messages
+- **Request Validation** for all API endpoints:
+  - Session creation: TTL bounds (0-86400s), workspace ID format validation
+  - Command execution: Timeout bounds (0-600000ms)
+  - File operations: Path validation, content requirements
+- New sentinel error types in session package for better error handling
 - **Python SDK** (`sdk/python/sandkasten`):
   - Clean async API with `SandboxClient` and `Session` classes
   - Type-safe with dataclasses (`ExecResult`, `SessionInfo`)
@@ -49,7 +71,16 @@
   - uv package manager for fast installs
   - Python alias (`python` → `python3`)
 
+### Changed
+- All API handlers now return structured errors with error codes instead of generic messages
+- Config endpoints now require authentication when API key is configured (read-only access still public)
+- Error responses now include proper HTTP status codes based on error type
+
 ### Fixed
+- **Security:** Path sanitization now correctly prevents absolute paths from escaping `/workspace`
+- **Security:** Container pool cleanup no longer has race condition with refill workers
+- JSON marshaling errors are now logged and handled gracefully
+- Invalid request parameters now return 400 Bad Request instead of 500 Internal Server Error
 - **Streaming Exec**: Fixed critical bug in SSE handler where `done` events were sent with zero-valued metadata (exit_code=0, cwd="", duration_ms=0) instead of actual command results. Handler now correctly checks `chunk.Done` flag instead of channel closure to emit proper completion data.
 - Complete quickstart directory with:
   - Pre-configured daemon (Docker Compose)

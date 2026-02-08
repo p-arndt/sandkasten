@@ -1,5 +1,5 @@
 import type { SandboxClient } from "./client.js";
-import type { ExecResult, ReadResult } from "./types.js";
+import type { ExecResult, ReadResult, SessionInfo, ExecChunk } from "./types.js";
 
 export class Session {
   readonly id: string;
@@ -23,6 +23,75 @@ export class Session {
       }),
     });
     return res.json();
+  }
+
+  async *execStream(
+    cmd: string,
+    opts?: { timeoutMs?: number }
+  ): AsyncIterableIterator<ExecChunk> {
+    const res = await this.client.fetch(`/v1/sessions/${this.id}/exec/stream`, {
+      method: "POST",
+      body: JSON.stringify({
+        cmd,
+        timeout_ms: opts?.timeoutMs,
+      }),
+    });
+
+    if (!res.body) {
+      throw new Error("Response body is null");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+        let eventType = "";
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            eventType = line.substring(6).trim();
+          } else if (line.startsWith("data:")) {
+            const data = line.substring(5).trim();
+            if (!data) continue;
+
+            const parsed = JSON.parse(data);
+
+            if (eventType === "chunk") {
+              yield {
+                output: parsed.chunk || "",
+                timestamp: parsed.timestamp || Date.now(),
+                done: false,
+              };
+            } else if (eventType === "done") {
+              yield {
+                output: "",
+                timestamp: Date.now(),
+                exit_code: parsed.exit_code,
+                cwd: parsed.cwd,
+                duration_ms: parsed.duration_ms,
+                done: true,
+              };
+              return;
+            } else if (eventType === "error") {
+              throw new Error(parsed.error || "Unknown streaming error");
+            }
+
+            eventType = ""; // Reset for next event
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   async write(
@@ -65,6 +134,15 @@ export class Session {
   ): Promise<string> {
     const bytes = await this.read(path, opts);
     return new TextDecoder().decode(bytes);
+  }
+
+  async writeText(path: string, text: string): Promise<void> {
+    await this.write(path, text);
+  }
+
+  async info(): Promise<SessionInfo> {
+    const res = await this.client.fetch(`/v1/sessions/${this.id}`);
+    return res.json();
   }
 
   async destroy(): Promise<void> {

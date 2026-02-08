@@ -9,7 +9,9 @@
       "Bash(go vet:*)",
       "WebSearch",
       "WebFetch(domain:openai.github.io)",
-      "Bash(uv run python:*)"
+      "Bash(uv run python:*)",
+      "Bash(grep:*)",
+      "Bash(make build:*)"
     ]
   }
 }
