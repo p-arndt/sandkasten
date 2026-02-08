@@ -82,6 +82,7 @@ func main() {
 	mgr := session.NewManager(cfg, st, dc, poolMgr, wm)
 
 	rpr := reaper.New(st, dc, 30*time.Second, logger)
+	rpr.SetSessionManager(mgr)
 	go rpr.Run(ctx)
 
 	srv := api.NewServer(cfg, mgr, st, *cfgPath, logger)

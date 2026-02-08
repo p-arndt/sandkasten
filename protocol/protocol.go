@@ -78,6 +78,9 @@ const MaxOutputBytes = 5 * 1024 * 1024 // 5 MB
 // DefaultMaxReadBytes is the default cap on file reads.
 const DefaultMaxReadBytes = 10 * 1024 * 1024 // 10 MB
 
+// WorkspaceVolumePrefix is the prefix for workspace volume names.
+const WorkspaceVolumePrefix = "sandkasten-ws-"
+
 // SentinelBegin is the marker written before a command.
 const SentinelBegin = "__SANDKASTEN_BEGIN__"
 

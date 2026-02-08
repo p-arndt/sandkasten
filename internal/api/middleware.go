@@ -14,12 +14,12 @@ const requestIDKey contextKey = "request_id"
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for health check and read-only web UI routes
-		skipAuthPaths := []string{
-			"/healthz",
-			"/",
-			"/settings",
-			"/api/status",
+		// Skip auth for specific paths using exact matching
+		skipAuthExact := map[string]bool{
+			"/healthz":     true,
+			"/":            true,
+			"/settings":    true,
+			"/api/status":  true,
 		}
 
 		// Allow read-only config access without auth
@@ -28,11 +28,9 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		for _, path := range skipAuthPaths {
-			if r.URL.Path == path || strings.HasPrefix(r.URL.Path, path) {
-				next.ServeHTTP(w, r)
-				return
-			}
+		if skipAuthExact[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
 		}
 
 		if s.cfg.APIKey == "" {
@@ -43,13 +41,13 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		auth := r.Header.Get("Authorization")
 		if auth == "" {
-			writeError(w, http.StatusUnauthorized, "missing authorization header")
+			writeUnauthorizedError(w, "missing authorization header")
 			return
 		}
 
 		token := strings.TrimPrefix(auth, "Bearer ")
 		if token == auth || token != s.cfg.APIKey {
-			writeError(w, http.StatusUnauthorized, "invalid api key")
+			writeUnauthorizedError(w, "invalid api key")
 			return
 		}
 

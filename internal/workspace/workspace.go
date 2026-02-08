@@ -8,6 +8,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/p-arndt/sandkasten/protocol"
 )
 
 // Manager handles persistent workspace volumes.
@@ -92,7 +93,7 @@ func (m *Manager) Delete(ctx context.Context, workspaceID string) error {
 
 // GetVolumeName returns the Docker volume name for a workspace.
 func GetVolumeName(workspaceID string) string {
-	return fmt.Sprintf("sandkasten-ws-%s", workspaceID)
+	return protocol.WorkspaceVolumePrefix + workspaceID
 }
 
 // GenerateWorkspaceID generates a workspace ID from user context.

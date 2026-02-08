@@ -63,6 +63,11 @@ func (m *Manager) removeSessionLock(id string) {
 	delete(m.locks, id)
 }
 
+// CleanupSessionLock removes the mutex for a session (used by reaper).
+func (m *Manager) CleanupSessionLock(id string) {
+	m.removeSessionLock(id)
+}
+
 // isImageAllowed checks if an image is in the allowed list.
 func (m *Manager) isImageAllowed(image string) bool {
 	if len(m.cfg.AllowedImages) == 0 {

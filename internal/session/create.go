@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/p-arndt/sandkasten/internal/docker"
 	"github.com/p-arndt/sandkasten/internal/store"
+	"github.com/p-arndt/sandkasten/protocol"
 )
 
 func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, error) {
@@ -91,7 +92,7 @@ func (m *Manager) ensureWorkspace(ctx context.Context, workspaceID string) error
 		return nil
 	}
 
-	volumeName := "sandkasten-ws-" + workspaceID
+	volumeName := protocol.WorkspaceVolumePrefix + workspaceID
 	exists, err := m.workspace.Exists(ctx, volumeName)
 	if err != nil {
 		return fmt.Errorf("check workspace: %w", err)

@@ -79,9 +79,9 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateOpts) (string, 
 	}
 
 	// Determine workspace volume source
-	workspaceSource := "sandkasten-ws-" + opts.SessionID // default: ephemeral
+	workspaceSource := protocol.WorkspaceVolumePrefix + opts.SessionID // default: ephemeral
 	if opts.WorkspaceID != "" {
-		workspaceSource = "sandkasten-ws-" + opts.WorkspaceID // persistent
+		workspaceSource = protocol.WorkspaceVolumePrefix + opts.WorkspaceID // persistent
 	}
 
 	hostCfg := &container.HostConfig{
@@ -193,7 +193,7 @@ func (c *Client) RemoveContainer(ctx context.Context, containerID string, sessio
 	}
 
 	// Also remove the workspace volume.
-	volName := "sandkasten_ws_" + sessionID
+	volName := protocol.WorkspaceVolumePrefix + sessionID
 	c.docker.VolumeRemove(ctx, volName, true)
 
 	return nil

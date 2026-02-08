@@ -88,3 +88,13 @@ func writeValidationError(w http.ResponseWriter, message string, details map[str
 		Details: details,
 	})
 }
+
+// writeUnauthorizedError writes a 401 Unauthorized error
+func writeUnauthorizedError(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(APIError{
+		Code:    ErrCodeUnauthorized,
+		Message: message,
+	})
+}

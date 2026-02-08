@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -207,5 +208,8 @@ func (p *Pool) refill(ctx context.Context, image string, targetSize int) {
 }
 
 func generatePoolSessionID() string {
-	return "pool-" + time.Now().Format("20060102-150405")
+	timestamp := time.Now().Format("20060102-150405")
+	// Add random suffix to prevent collisions when creating multiple containers per second
+	suffix := time.Now().UnixNano() % 100000
+	return fmt.Sprintf("pool-%s-%05d", timestamp, suffix)
 }

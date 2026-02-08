@@ -127,8 +127,12 @@ func sendDoneChunk(w http.ResponseWriter, flusher http.Flusher, chunk session.Ex
 		flusher.Flush()
 	}
 
-	fmt.Fprintf(w, "event: done\ndata: {\"exit_code\":%d,\"cwd\":\"%s\",\"duration_ms\":%d}\n\n",
-		chunk.ExitCode, chunk.Cwd, chunk.DurationMs)
+	doneJSON, _ := json.Marshal(map[string]interface{}{
+		"exit_code":   chunk.ExitCode,
+		"cwd":         chunk.Cwd,
+		"duration_ms": chunk.DurationMs,
+	})
+	fmt.Fprintf(w, "event: done\ndata: %s\n\n", doneJSON)
 	flusher.Flush()
 }
 

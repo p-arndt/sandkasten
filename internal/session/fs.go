@@ -9,15 +9,9 @@ import (
 )
 
 func (m *Manager) Write(ctx context.Context, sessionID, path string, content []byte, isBase64 bool) error {
-	sess, err := m.store.GetSession(sessionID)
+	sess, err := m.validateSession(sessionID)
 	if err != nil {
 		return err
-	}
-	if sess == nil {
-		return fmt.Errorf("session not found: %s", sessionID)
-	}
-	if sess.Status != "running" {
-		return fmt.Errorf("session not running: %s", sessionID)
 	}
 
 	req := buildWriteRequest(path, content, isBase64)
@@ -35,15 +29,9 @@ func (m *Manager) Write(ctx context.Context, sessionID, path string, content []b
 }
 
 func (m *Manager) Read(ctx context.Context, sessionID, path string, maxBytes int) (string, bool, error) {
-	sess, err := m.store.GetSession(sessionID)
+	sess, err := m.validateSession(sessionID)
 	if err != nil {
 		return "", false, err
-	}
-	if sess == nil {
-		return "", false, fmt.Errorf("session not found: %s", sessionID)
-	}
-	if sess.Status != "running" {
-		return "", false, fmt.Errorf("session not running: %s", sessionID)
 	}
 
 	req := buildReadRequest(path, maxBytes)

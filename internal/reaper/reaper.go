@@ -9,11 +9,17 @@ import (
 	"github.com/p-arndt/sandkasten/internal/store"
 )
 
+// SessionManager interface for lock cleanup
+type SessionManager interface {
+	CleanupSessionLock(id string)
+}
+
 type Reaper struct {
-	store    *store.Store
-	docker   *docker.Client
-	interval time.Duration
-	logger   *slog.Logger
+	store          *store.Store
+	docker         *docker.Client
+	sessionManager SessionManager
+	interval       time.Duration
+	logger         *slog.Logger
 }
 
 func New(st *store.Store, dc *docker.Client, interval time.Duration, logger *slog.Logger) *Reaper {
@@ -23,6 +29,11 @@ func New(st *store.Store, dc *docker.Client, interval time.Duration, logger *slo
 		interval: interval,
 		logger:   logger,
 	}
+}
+
+// SetSessionManager sets the session manager for lock cleanup (called after manager is created)
+func (r *Reaper) SetSessionManager(sm SessionManager) {
+	r.sessionManager = sm
 }
 
 // Run starts the reaper loop. It blocks until ctx is cancelled.
@@ -64,6 +75,11 @@ func (r *Reaper) reapExpired(ctx context.Context) {
 		if err := r.store.UpdateSessionStatus(sess.ID, "expired"); err != nil {
 			r.logger.Error("reaper: update status", "session_id", sess.ID, "error", err)
 		}
+
+		// Clean up session lock to prevent memory leak
+		if r.sessionManager != nil {
+			r.sessionManager.CleanupSessionLock(sess.ID)
+		}
 	}
 
 	if len(expired) > 0 {
@@ -99,6 +115,10 @@ func (r *Reaper) reconcile(ctx context.Context) {
 			r.logger.Warn("reconcile: container missing for running session, marking crashed",
 				"session_id", sess.ID)
 			r.store.UpdateSessionStatus(sess.ID, "crashed")
+			// Clean up session lock
+			if r.sessionManager != nil {
+				r.sessionManager.CleanupSessionLock(sess.ID)
+			}
 		}
 		// Remove from map — anything left is an orphan.
 		delete(containerSessions, sess.ID)

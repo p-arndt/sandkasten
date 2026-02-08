@@ -49,7 +49,9 @@ func (h *Handler) ServeSettingsPage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	sessions, err := h.store.ListSessions()
 	if err != nil {
-		http.Error(w, `{"error": "failed to list sessions"}`, http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "failed to list sessions"}`))
 		return
 	}
 
@@ -82,13 +84,17 @@ func (h *Handler) GetStatus(w http.ResponseWriter, r *http.Request) {
 // GetConfig returns the current YAML config file content
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	if h.configPath == "" {
-		http.Error(w, `{"error": "no config file path set"}`, http.StatusNotFound)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error": "no config file path set"}`))
 		return
 	}
 
 	content, err := os.ReadFile(h.configPath)
 	if err != nil {
-		http.Error(w, `{"error": "failed to read config file"}`, http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "failed to read config file"}`))
 		return
 	}
 
@@ -104,7 +110,9 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 // UpdateConfig saves the YAML config file
 func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if h.configPath == "" {
-		http.Error(w, `{"error": "no config file path set"}`, http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "no config file path set"}`))
 		return
 	}
 
@@ -113,7 +121,9 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error": "invalid JSON"}`, http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "invalid JSON"}`))
 		return
 	}
 
@@ -130,9 +140,11 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write to file
-	if err := os.WriteFile(h.configPath, []byte(req.Content), 0644); err != nil {
-		http.Error(w, `{"error": "failed to write config file"}`, http.StatusInternalServerError)
+	// Write to file with restricted permissions (config may contain API keys)
+	if err := os.WriteFile(h.configPath, []byte(req.Content), 0600); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "failed to write config file"}`))
 		return
 	}
 
@@ -147,7 +159,9 @@ func (h *Handler) ValidateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error": "invalid JSON"}`, http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "invalid JSON"}`))
 		return
 	}
 
