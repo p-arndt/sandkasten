@@ -9,22 +9,34 @@ import (
 )
 
 type Defaults struct {
-	CPULimit        float64 `yaml:"cpu_limit"`
-	MemLimitMB      int     `yaml:"mem_limit_mb"`
-	PidsLimit       int     `yaml:"pids_limit"`
-	MaxExecTimeoutMs int    `yaml:"max_exec_timeout_ms"`
-	NetworkMode     string  `yaml:"network_mode"`
-	ReadonlyRootfs  bool    `yaml:"readonly_rootfs"`
+	CPULimit         float64 `yaml:"cpu_limit"`
+	MemLimitMB       int     `yaml:"mem_limit_mb"`
+	PidsLimit        int     `yaml:"pids_limit"`
+	MaxExecTimeoutMs int     `yaml:"max_exec_timeout_ms"`
+	NetworkMode      string  `yaml:"network_mode"`
+	ReadonlyRootfs   bool    `yaml:"readonly_rootfs"`
+}
+
+type PoolConfig struct {
+	Enabled bool               `yaml:"enabled"`
+	Images  map[string]int     `yaml:"images"` // image -> pool size
+}
+
+type WorkspaceConfig struct {
+	Enabled          bool `yaml:"enabled"`
+	PersistByDefault bool `yaml:"persist_by_default"`
 }
 
 type Config struct {
-	Listen            string   `yaml:"listen"`
-	APIKey            string   `yaml:"api_key"`
-	DefaultImage      string   `yaml:"default_image"`
-	AllowedImages     []string `yaml:"allowed_images"`
-	DBPath            string   `yaml:"db_path"`
-	SessionTTLSeconds int      `yaml:"session_ttl_seconds"`
-	Defaults          Defaults `yaml:"defaults"`
+	Listen            string          `yaml:"listen"`
+	APIKey            string          `yaml:"api_key"`
+	DefaultImage      string          `yaml:"default_image"`
+	AllowedImages     []string        `yaml:"allowed_images"`
+	DBPath            string          `yaml:"db_path"`
+	SessionTTLSeconds int             `yaml:"session_ttl_seconds"`
+	Defaults          Defaults        `yaml:"defaults"`
+	Pool              PoolConfig      `yaml:"pool"`
+	Workspace         WorkspaceConfig `yaml:"workspace"`
 }
 
 func Load(yamlPath string) (*Config, error) {
@@ -40,6 +52,14 @@ func Load(yamlPath string) (*Config, error) {
 			MaxExecTimeoutMs: 120000,
 			NetworkMode:      "none",
 			ReadonlyRootfs:   true,
+		},
+		Pool: PoolConfig{
+			Enabled: false,
+			Images:  make(map[string]int),
+		},
+		Workspace: WorkspaceConfig{
+			Enabled:          false,
+			PersistByDefault: false,
 		},
 	}
 

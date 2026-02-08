@@ -15,12 +15,15 @@ Usage:
 """
 
 import asyncio
-import base64
 import os
 import sys
 from datetime import datetime
+from pathlib import Path
 
-import httpx
+# Add SDK to path for development
+sdk_path = Path(__file__).parent.parent.parent / "sdk" / "python"
+sys.path.insert(0, str(sdk_path))
+
 from agents import Agent, Runner, SQLiteSession, function_tool
 from openai.types.responses import ResponseTextDeltaEvent
 from rich.console import Console
@@ -30,6 +33,7 @@ from rich.table import Table
 from rich.live import Live
 from rich import box
 
+from sandkasten import SandboxClient, Session
 
 # Configuration
 SANDKASTEN_URL = "http://localhost:8080"
@@ -38,26 +42,9 @@ SESSION_DB = "conversation_history.db"
 
 # Global state
 console = Console()
-http_client = httpx.AsyncClient(
-    base_url=SANDKASTEN_URL,
-    headers={"Authorization": f"Bearer {SANDKASTEN_API_KEY}"},
-    timeout=120.0,
-)
-session_id: str | None = None
+client: SandboxClient | None = None
+sandbox_session: Session | None = None
 conversation_session: SQLiteSession | None = None
-
-
-async def create_session(image: str = "sandbox-runtime:python") -> str:
-    """Create a new sandbox session."""
-    resp = await http_client.post("/v1/sessions", json={"image": image})
-    resp.raise_for_status()
-    data = resp.json()
-    return data["id"]
-
-
-async def destroy_session(sid: str) -> None:
-    """Destroy a sandbox session."""
-    await http_client.delete(f"/v1/sessions/{sid}")
 
 
 # Tools with visual feedback
@@ -78,21 +65,16 @@ async def exec(cmd: str, timeout_ms: int = 30000) -> str:
     """
     console.print(f"[dim]  → exec:[/dim] [cyan]{cmd}[/cyan]")
 
-    resp = await http_client.post(
-        f"/v1/sessions/{session_id}/exec",
-        json={"cmd": cmd, "timeout_ms": timeout_ms},
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    result = await sandbox_session.exec(cmd, timeout_ms=timeout_ms)
 
     parts = [
-        f"exit_code={data['exit_code']}",
-        f"cwd={data['cwd']}",
+        f"exit_code={result.exit_code}",
+        f"cwd={result.cwd}",
     ]
-    if data.get("truncated"):
+    if result.truncated:
         parts.append("(output truncated)")
 
-    return "\n".join(parts) + "\n---\n" + data["output"]
+    return "\n".join(parts) + "\n---\n" + result.output
 
 
 @function_tool
@@ -108,11 +90,7 @@ async def write_file(path: str, content: str) -> str:
     """
     console.print(f"[dim]  → write:[/dim] [green]{path}[/green] [dim]({len(content)} bytes)[/dim]")
 
-    resp = await http_client.post(
-        f"/v1/sessions/{session_id}/fs/write",
-        json={"path": path, "text": content},
-    )
-    resp.raise_for_status()
+    await sandbox_session.write(path, content)
 
     return f"wrote {path}"
 
@@ -129,15 +107,9 @@ async def read_file(path: str) -> str:
     """
     console.print(f"[dim]  → read:[/dim] [yellow]{path}[/yellow]")
 
-    resp = await http_client.get(
-        f"/v1/sessions/{session_id}/fs/read",
-        params={"path": path},
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    content = await sandbox_session.read(path)
 
-    content = base64.b64decode(data["content_base64"]).decode()
-    return content
+    return content.decode()
 
 
 # Define the agent
@@ -187,12 +159,12 @@ def print_header():
     console.print()
 
 
-def print_session_info(sid: str):
+def print_session_info(session: Session):
     """Print session information."""
     info = Table.grid(padding=(0, 2))
     info.add_column(style="dim")
     info.add_column()
-    info.add_row("Sandbox:", f"[green]{sid}[/green]")
+    info.add_row("Sandbox:", f"[green]{session.id}[/green]")
     info.add_row("Image:", "[cyan]sandbox-runtime:python[/cyan]")
     info.add_row("Network:", "[yellow]full[/yellow]")
     info.add_row("Packages:", "[dim]requests, httpx, pandas, numpy, matplotlib, bs4, yaml[/dim]")
@@ -333,15 +305,19 @@ async def run_with_streaming(user_input: str):
 
 async def interactive_loop():
     """Main interactive loop."""
-    global session_id, conversation_session
+    global client, sandbox_session, conversation_session
 
     print_header()
 
-    # Create sandbox session
+    # Create client and sandbox session
     with console.status("[cyan]Creating sandbox session...[/cyan]"):
-        session_id = await create_session()
+        client = SandboxClient(
+            base_url=SANDKASTEN_URL,
+            api_key=SANDKASTEN_API_KEY,
+        )
+        sandbox_session = await client.create_session(image="sandbox-runtime:python")
 
-    print_session_info(session_id)
+    print_session_info(sandbox_session)
 
     # Create conversation session
     user_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -383,11 +359,13 @@ async def interactive_loop():
         # Clean up
         console.print()
         with console.status("[dim]Cleaning up...[/dim]"):
-            await destroy_session(session_id)
-            await http_client.aclose()
+            if sandbox_session:
+                await sandbox_session.destroy()
+            if client:
+                await client.close()
 
         console.print(Panel(
-            f"[green]✓[/green] Session [cyan]{session_id}[/cyan] destroyed\n"
+            f"[green]✓[/green] Session [cyan]{sandbox_session.id if sandbox_session else 'unknown'}[/cyan] destroyed\n"
             f"[dim]Conversation history saved to {SESSION_DB}[/dim]",
             border_style="dim",
             box=box.ROUNDED,

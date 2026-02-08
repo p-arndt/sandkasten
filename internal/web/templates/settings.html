@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sandkasten - Settings</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f0f0f;
+            color: #e0e0e0;
+            line-height: 1.6;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+        header {
+            background: #1a1a1a;
+            border-bottom: 2px solid #2a2a2a;
+            padding: 1.5rem 2rem;
+            margin-bottom: 2rem;
+        }
+        header h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            color: #4a9eff;
+            margin-bottom: 0.5rem;
+        }
+        header .subtitle {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        nav {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        nav a {
+            padding: 0.5rem 1rem;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            text-decoration: none;
+            border-radius: 6px;
+            border: 1px solid #2a2a2a;
+            transition: all 0.2s;
+        }
+        nav a:hover { background: #2a2a2a; border-color: #4a9eff; }
+        nav a.active { background: #4a9eff; color: #fff; border-color: #4a9eff; }
+
+        .section {
+            background: #1a1a1a;
+            border-radius: 8px;
+            border: 1px solid #2a2a2a;
+            margin-bottom: 2rem;
+        }
+        .section-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .section-header h2 {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+        .section-header .subtitle {
+            color: #888;
+            font-size: 0.85rem;
+            margin-top: 0.25rem;
+        }
+
+        .section-content {
+            padding: 1.5rem;
+        }
+
+        .editor {
+            width: 100%;
+            min-height: 500px;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            padding: 1rem;
+            font-family: "SF Mono", Monaco, monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            resize: vertical;
+        }
+        .editor:focus {
+            outline: none;
+            border-color: #4a9eff;
+        }
+
+        .actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #4a9eff;
+            color: #fff;
+        }
+        .btn-primary:hover { background: #3a8eef; }
+        .btn-primary:disabled {
+            background: #2a2a2a;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            background: #2a2a2a;
+            color: #e0e0e0;
+        }
+        .btn-secondary:hover { background: #3a3a3a; }
+
+        .message {
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        .message.success {
+            background: #1a4d2e;
+            color: #4ade80;
+            border: 1px solid #2d7a4a;
+        }
+        .message.error {
+            background: #4d1a1a;
+            color: #f87171;
+            border: 1px solid #7a2d2d;
+        }
+        .message.show { display: block; }
+
+        .warning {
+            background: #4d3a1a;
+            color: #fbbf24;
+            border: 1px solid #7a5d2d;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }
+        .warning strong { display: block; margin-bottom: 0.5rem; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🏖️ Sandkasten</h1>
+        <div class="subtitle">Sandbox Runtime Control Panel</div>
+    </header>
+
+    <div class="container">
+        <nav>
+            <a href="/">Status</a>
+            <a href="/settings" class="active">Settings</a>
+        </nav>
+
+        <div id="message" class="message"></div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>Configuration</h2>
+                <div class="subtitle">Edit sandkasten.yaml — changes require daemon restart</div>
+            </div>
+            <div class="section-content">
+                <div class="warning">
+                    <strong>⚠️ Warning</strong>
+                    Changes to this file require restarting the Sandkasten daemon to take effect.
+                    Invalid YAML will prevent the daemon from starting.
+                </div>
+
+                <textarea id="config-editor" class="editor" spellcheck="false"></textarea>
+
+                <div class="actions">
+                    <button class="btn btn-primary" onclick="saveConfig()" id="save-btn">
+                        💾 Save Configuration
+                    </button>
+                    <button class="btn btn-secondary" onclick="loadConfig()">
+                        ↻ Reload from File
+                    </button>
+                    <button class="btn btn-secondary" onclick="validateConfig()">
+                        ✓ Validate YAML
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>Configuration Reference</h2>
+                <div class="subtitle">Available configuration options</div>
+            </div>
+            <div class="section-content" style="color: #888; font-size: 0.9rem; line-height: 1.8;">
+                <p><strong style="color: #e0e0e0;">listen:</strong> Host and port to bind (e.g., "127.0.0.1:8080")</p>
+                <p><strong style="color: #e0e0e0;">api_key:</strong> API key for authentication (Bearer token)</p>
+                <p><strong style="color: #e0e0e0;">default_image:</strong> Default Docker image for sessions</p>
+                <p><strong style="color: #e0e0e0;">allowed_images:</strong> List of allowed Docker images</p>
+                <p><strong style="color: #e0e0e0;">db_path:</strong> Path to SQLite database file</p>
+                <p><strong style="color: #e0e0e0;">session_ttl_seconds:</strong> Default session lifetime in seconds</p>
+                <p><strong style="color: #e0e0e0;">defaults.cpu_limit:</strong> CPU limit (e.g., 1.0 = 1 core)</p>
+                <p><strong style="color: #e0e0e0;">defaults.mem_limit_mb:</strong> Memory limit in megabytes</p>
+                <p><strong style="color: #e0e0e0;">defaults.pids_limit:</strong> Process limit</p>
+                <p><strong style="color: #e0e0e0;">defaults.max_exec_timeout_ms:</strong> Maximum exec timeout in milliseconds</p>
+                <p><strong style="color: #e0e0e0;">defaults.network_mode:</strong> Network mode ("none", "bridge", "host")</p>
+                <p><strong style="color: #e0e0e0;">defaults.readonly_rootfs:</strong> Whether to make rootfs read-only (true/false)</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadConfig() {
+            try {
+                const resp = await fetch('/api/config');
+                if (!resp.ok) throw new Error('Failed to load config');
+                const data = await resp.json();
+                document.getElementById('config-editor').value = data.content;
+                showMessage('Configuration loaded', 'success');
+            } catch (err) {
+                showMessage('Error loading configuration: ' + err.message, 'error');
+            }
+        }
+
+        async function saveConfig() {
+            const content = document.getElementById('config-editor').value;
+            const saveBtn = document.getElementById('save-btn');
+
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+
+            try {
+                const resp = await fetch('/api/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+
+                if (!resp.ok) {
+                    const data = await resp.json();
+                    throw new Error(data.error || 'Save failed');
+                }
+
+                showMessage('✓ Configuration saved successfully. Restart daemon to apply changes.', 'success');
+            } catch (err) {
+                showMessage('Error saving configuration: ' + err.message, 'error');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = '💾 Save Configuration';
+            }
+        }
+
+        async function validateConfig() {
+            const content = document.getElementById('config-editor').value;
+
+            try {
+                const resp = await fetch('/api/config/validate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+
+                const data = await resp.json();
+
+                if (data.valid) {
+                    showMessage('✓ Configuration is valid YAML', 'success');
+                } else {
+                    showMessage('Invalid YAML: ' + (data.error || 'Parse error'), 'error');
+                }
+            } catch (err) {
+                showMessage('Validation error: ' + err.message, 'error');
+            }
+        }
+
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.textContent = text;
+            msg.className = `message ${type} show`;
+            setTimeout(() => {
+                msg.classList.remove('show');
+            }, 5000);
+        }
+
+        // Initial load
+        loadConfig();
+    </script>
+</body>
+</html>

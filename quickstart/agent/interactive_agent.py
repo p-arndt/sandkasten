@@ -10,36 +10,22 @@ Usage:
 """
 
 import asyncio
-import base64
 import sys
-import httpx
-from agents import Agent, Runner, function_tool
+from pathlib import Path
 
+# Add SDK to path for development
+sdk_path = Path(__file__).parent.parent.parent / "sdk" / "python"
+sys.path.insert(0, str(sdk_path))
+
+from agents import Agent, Runner, function_tool
+from sandkasten import SandboxClient, Session
 
 # Configuration
 SANDKASTEN_URL = "http://localhost:8080"
 SANDKASTEN_API_KEY = "sk-sandbox-quickstart"
 
 # Global state
-http_client = httpx.AsyncClient(
-    base_url=SANDKASTEN_URL,
-    headers={"Authorization": f"Bearer {SANDKASTEN_API_KEY}"},
-    timeout=120.0,
-)
-session_id: str | None = None
-
-
-async def create_session(image: str = "sandbox-runtime:python") -> str:
-    """Create a new sandbox session."""
-    resp = await http_client.post("/v1/sessions", json={"image": image})
-    resp.raise_for_status()
-    data = resp.json()
-    return data["id"]
-
-
-async def destroy_session(sid: str) -> None:
-    """Destroy a sandbox session."""
-    await http_client.delete(f"/v1/sessions/{sid}")
+sandbox_session: Session | None = None
 
 
 # Tools
@@ -48,29 +34,20 @@ async def destroy_session(sid: str) -> None:
 async def exec(cmd: str, timeout_ms: int = 30000) -> str:
     """Execute a shell command in the sandbox."""
     print(f"  → exec: {cmd}")
-    resp = await http_client.post(
-        f"/v1/sessions/{session_id}/exec",
-        json={"cmd": cmd, "timeout_ms": timeout_ms},
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    result = await sandbox_session.exec(cmd, timeout_ms=timeout_ms)
 
-    parts = [f"exit={data['exit_code']}", f"cwd={data['cwd']}"]
-    if data.get("truncated"):
+    parts = [f"exit={result.exit_code}", f"cwd={result.cwd}"]
+    if result.truncated:
         parts.append("(truncated)")
 
-    return "\n".join(parts) + "\n---\n" + data["output"]
+    return "\n".join(parts) + "\n---\n" + result.output
 
 
 @function_tool
 async def write_file(path: str, content: str) -> str:
     """Write a file in the sandbox."""
     print(f"  → write: {path}")
-    resp = await http_client.post(
-        f"/v1/sessions/{session_id}/fs/write",
-        json={"path": path, "text": content},
-    )
-    resp.raise_for_status()
+    await sandbox_session.write(path, content)
     return f"wrote {path}"
 
 
@@ -78,13 +55,8 @@ async def write_file(path: str, content: str) -> str:
 async def read_file(path: str) -> str:
     """Read a file from the sandbox."""
     print(f"  → read: {path}")
-    resp = await http_client.get(
-        f"/v1/sessions/{session_id}/fs/read",
-        params={"path": path},
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return base64.b64decode(data["content_base64"]).decode()
+    content = await sandbox_session.read(path)
+    return content.decode()
 
 
 # Agent
@@ -105,15 +77,19 @@ Be helpful and thorough.""",
 
 
 async def main():
-    global session_id
+    global sandbox_session
 
     print("\n" + "="*60)
     print("Interactive Sandkasten Agent")
     print("="*60)
     print("\nType your requests. Type 'quit' to exit.\n")
 
-    session_id = await create_session()
-    print(f"✓ Session {session_id} ready\n")
+    client = SandboxClient(
+        base_url=SANDKASTEN_URL,
+        api_key=SANDKASTEN_API_KEY,
+    )
+    sandbox_session = await client.create_session(image="sandbox-runtime:python")
+    print(f"✓ Session {sandbox_session.id} ready\n")
 
     try:
         while True:
@@ -137,9 +113,9 @@ async def main():
     except KeyboardInterrupt:
         print("\n\nInterrupted.")
     finally:
-        await destroy_session(session_id)
-        await http_client.aclose()
-        print(f"\n✓ Session {session_id} destroyed\n")
+        await sandbox_session.destroy()
+        await client.close()
+        print(f"\n✓ Session {sandbox_session.id} destroyed\n")
 
 
 if __name__ == "__main__":

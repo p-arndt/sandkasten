@@ -14,6 +14,7 @@ type Session struct {
 	ContainerID  string
 	Status       string
 	Cwd          string
+	WorkspaceID  string // optional persistent workspace volume
 	CreatedAt    time.Time
 	ExpiresAt    time.Time
 	LastActivity time.Time
@@ -30,12 +31,18 @@ CREATE TABLE IF NOT EXISTS sessions (
 	container_id  TEXT NOT NULL,
 	status        TEXT NOT NULL DEFAULT 'running',
 	cwd           TEXT NOT NULL DEFAULT '/workspace',
+	workspace_id  TEXT,
 	created_at    DATETIME NOT NULL,
 	expires_at    DATETIME NOT NULL,
 	last_activity DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_workspace_id ON sessions(workspace_id);
+`
+
+const migrateWorkspaceSQL = `
+ALTER TABLE sessions ADD COLUMN workspace_id TEXT;
 `
 
 func New(dbPath string) (*Store, error) {
@@ -54,6 +61,9 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 
+	// Run migration for workspace_id (idempotent)
+	db.Exec(migrateWorkspaceSQL) // Ignore error if column exists
+
 	return &Store{db: db}, nil
 }
 
@@ -63,9 +73,9 @@ func (s *Store) Close() error {
 
 func (s *Store) CreateSession(sess *Session) error {
 	_, err := s.db.Exec(
-		`INSERT INTO sessions (id, image, container_id, status, cwd, created_at, expires_at, last_activity)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		sess.ID, sess.Image, sess.ContainerID, sess.Status, sess.Cwd,
+		`INSERT INTO sessions (id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sess.ID, sess.Image, sess.ContainerID, sess.Status, sess.Cwd, sess.WorkspaceID,
 		sess.CreatedAt.UTC(), sess.ExpiresAt.UTC(), sess.LastActivity.UTC(),
 	)
 	if err != nil {
@@ -76,7 +86,7 @@ func (s *Store) CreateSession(sess *Session) error {
 
 func (s *Store) GetSession(id string) (*Session, error) {
 	row := s.db.QueryRow(
-		`SELECT id, image, container_id, status, cwd, created_at, expires_at, last_activity
+		`SELECT id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity
 		 FROM sessions WHERE id = ?`, id,
 	)
 	return scanSession(row)
@@ -84,7 +94,7 @@ func (s *Store) GetSession(id string) (*Session, error) {
 
 func (s *Store) ListSessions() ([]*Session, error) {
 	rows, err := s.db.Query(
-		`SELECT id, image, container_id, status, cwd, created_at, expires_at, last_activity
+		`SELECT id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity
 		 FROM sessions ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -117,7 +127,7 @@ func (s *Store) UpdateSessionStatus(id string, status string) error {
 
 func (s *Store) ListExpiredSessions() ([]*Session, error) {
 	rows, err := s.db.Query(
-		`SELECT id, image, container_id, status, cwd, created_at, expires_at, last_activity
+		`SELECT id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity
 		 FROM sessions WHERE status = 'running' AND expires_at <= ?`,
 		time.Now().UTC(),
 	)
@@ -130,7 +140,7 @@ func (s *Store) ListExpiredSessions() ([]*Session, error) {
 
 func (s *Store) ListRunningSessions() ([]*Session, error) {
 	rows, err := s.db.Query(
-		`SELECT id, image, container_id, status, cwd, created_at, expires_at, last_activity
+		`SELECT id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity
 		 FROM sessions WHERE status = 'running'`,
 	)
 	if err != nil {
@@ -154,10 +164,14 @@ type scannable interface {
 
 func scanSession(row scannable) (*Session, error) {
 	var sess Session
+	var workspaceID sql.NullString
 	err := row.Scan(
 		&sess.ID, &sess.Image, &sess.ContainerID, &sess.Status, &sess.Cwd,
-		&sess.CreatedAt, &sess.ExpiresAt, &sess.LastActivity,
+		&workspaceID, &sess.CreatedAt, &sess.ExpiresAt, &sess.LastActivity,
 	)
+	if workspaceID.Valid {
+		sess.WorkspaceID = workspaceID.String
+	}
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

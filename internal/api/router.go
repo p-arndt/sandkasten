@@ -7,21 +7,25 @@ import (
 
 	"github.com/p-arndt/sandkasten/internal/config"
 	"github.com/p-arndt/sandkasten/internal/session"
+	"github.com/p-arndt/sandkasten/internal/store"
+	"github.com/p-arndt/sandkasten/internal/web"
 )
 
 type Server struct {
-	cfg     *config.Config
-	manager *session.Manager
-	logger  *slog.Logger
-	mux     *http.ServeMux
+	cfg        *config.Config
+	manager    *session.Manager
+	logger     *slog.Logger
+	mux        *http.ServeMux
+	webHandler *web.Handler
 }
 
-func NewServer(cfg *config.Config, mgr *session.Manager, logger *slog.Logger) *Server {
+func NewServer(cfg *config.Config, mgr *session.Manager, st *store.Store, configPath string, logger *slog.Logger) *Server {
 	s := &Server{
-		cfg:     cfg,
-		manager: mgr,
-		logger:  logger,
-		mux:     http.NewServeMux(),
+		cfg:        cfg,
+		manager:    mgr,
+		logger:     logger,
+		mux:        http.NewServeMux(),
+		webHandler: web.NewHandler(st, configPath),
 	}
 	s.routes()
 	return s
@@ -32,6 +36,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) routes() {
+	// API routes (with auth)
 	s.mux.HandleFunc("POST /v1/sessions", s.handleCreateSession)
 	s.mux.HandleFunc("GET /v1/sessions", s.handleListSessions)
 	s.mux.HandleFunc("GET /v1/sessions/{id}", s.handleGetSession)
@@ -40,7 +45,17 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/sessions/{id}/fs/read", s.handleRead)
 	s.mux.HandleFunc("DELETE /v1/sessions/{id}", s.handleDestroy)
 
-	// Health check (no auth).
+	// Web UI routes (no auth - consider adding auth in production)
+	s.mux.HandleFunc("GET /", s.webHandler.ServeStatusPage)
+	s.mux.HandleFunc("GET /settings", s.webHandler.ServeSettingsPage)
+
+	// Web API routes (no auth - consider adding auth in production)
+	s.mux.HandleFunc("GET /api/status", s.webHandler.GetStatus)
+	s.mux.HandleFunc("GET /api/config", s.webHandler.GetConfig)
+	s.mux.HandleFunc("PUT /api/config", s.webHandler.UpdateConfig)
+	s.mux.HandleFunc("POST /api/config/validate", s.webHandler.ValidateConfig)
+
+	// Health check (no auth)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})

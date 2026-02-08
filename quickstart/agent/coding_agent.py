@@ -11,37 +11,22 @@ Usage:
 """
 
 import asyncio
-import base64
-import httpx
-from agents import Agent, Runner, function_tool
+import sys
+from pathlib import Path
 
+# Add SDK to path for development
+sdk_path = Path(__file__).parent.parent.parent / "sdk" / "python"
+sys.path.insert(0, str(sdk_path))
+
+from agents import Agent, Runner, function_tool
+from sandkasten import SandboxClient, Session
 
 # Configuration
 SANDKASTEN_URL = "http://localhost:8080"
 SANDKASTEN_API_KEY = "sk-sandbox-quickstart"
 
 # Global state
-http_client = httpx.AsyncClient(
-    base_url=SANDKASTEN_URL,
-    headers={"Authorization": f"Bearer {SANDKASTEN_API_KEY}"},
-    timeout=120.0,
-)
-session_id: str | None = None
-
-
-async def create_session(image: str = "sandbox-runtime:python") -> str:
-    """Create a new sandbox session."""
-    resp = await http_client.post("/v1/sessions", json={"image": image})
-    resp.raise_for_status()
-    data = resp.json()
-    print(f"✓ Created session {data['id']} (expires: {data['expires_at']})")
-    return data["id"]
-
-
-async def destroy_session(sid: str) -> None:
-    """Destroy a sandbox session."""
-    await http_client.delete(f"/v1/sessions/{sid}")
-    print(f"✓ Destroyed session {sid}")
+sandbox_session: Session | None = None
 
 
 # Tools for the agent
@@ -60,21 +45,16 @@ async def exec(cmd: str, timeout_ms: int = 30000) -> str:
     Returns:
         Command output with exit code and current directory
     """
-    resp = await http_client.post(
-        f"/v1/sessions/{session_id}/exec",
-        json={"cmd": cmd, "timeout_ms": timeout_ms},
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    result = await sandbox_session.exec(cmd, timeout_ms=timeout_ms)
 
     parts = [
-        f"exit_code={data['exit_code']}",
-        f"cwd={data['cwd']}",
+        f"exit_code={result.exit_code}",
+        f"cwd={result.cwd}",
     ]
-    if data.get("truncated"):
+    if result.truncated:
         parts.append("(output truncated)")
 
-    output = "\n".join(parts) + "\n---\n" + data["output"]
+    output = "\n".join(parts) + "\n---\n" + result.output
 
     # Log for visibility
     print(f"  exec: {cmd[:60]}{'...' if len(cmd) > 60 else ''}")
@@ -93,11 +73,7 @@ async def write_file(path: str, content: str) -> str:
     Returns:
         Confirmation message
     """
-    resp = await http_client.post(
-        f"/v1/sessions/{session_id}/fs/write",
-        json={"path": path, "text": content},
-    )
-    resp.raise_for_status()
+    await sandbox_session.write(path, content)
 
     print(f"  write: {path}")
     return f"wrote {path}"
@@ -113,17 +89,10 @@ async def read_file(path: str) -> str:
     Returns:
         File contents
     """
-    resp = await http_client.get(
-        f"/v1/sessions/{session_id}/fs/read",
-        params={"path": path},
-    )
-    resp.raise_for_status()
-    data = resp.json()
-
-    content = base64.b64decode(data["content_base64"]).decode()
+    content = await sandbox_session.read(path)
 
     print(f"  read: {path} ({len(content)} bytes)")
-    return content
+    return content.decode()
 
 
 # Define the agent
@@ -154,14 +123,22 @@ Always:
 
 
 async def main():
-    global session_id
+    global sandbox_session
 
     print("\n" + "="*60)
     print("Sandkasten Quickstart: Coding Agent")
     print("="*60 + "\n")
 
-    # Create sandbox session
-    session_id = await create_session()
+    # Create client and sandbox session
+    client = SandboxClient(
+        base_url=SANDKASTEN_URL,
+        api_key=SANDKASTEN_API_KEY,
+    )
+    sandbox_session = await client.create_session(image="sandbox-runtime:python")
+
+    # Print session info
+    info = await sandbox_session.info()
+    print(f"✓ Created session {info.id} (expires: {info.expires_at})")
 
     try:
         # Run the agent
@@ -182,8 +159,9 @@ async def main():
 
     finally:
         # Clean up
-        await destroy_session(session_id)
-        await http_client.aclose()
+        print(f"✓ Destroyed session {sandbox_session.id}")
+        await sandbox_session.destroy()
+        await client.close()
 
     print("\n" + "="*60)
     print("Done!")

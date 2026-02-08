@@ -1,0 +1,18 @@
+[project]
+name = "sandkasten"
+version = "0.1.0"
+description = "Python SDK for Sandkasten sandbox runtime"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27.0",
+]
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.urls]
+Homepage = "https://github.com/yourusername/sandkasten"
+Documentation = "https://github.com/yourusername/sandkasten/tree/main/sdk/python"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

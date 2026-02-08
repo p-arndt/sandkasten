@@ -14,10 +14,20 @@ const requestIDKey contextKey = "request_id"
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for health check.
-		if r.URL.Path == "/healthz" {
-			next.ServeHTTP(w, r)
-			return
+		// Skip auth for health check and web UI routes
+		skipAuthPaths := []string{
+			"/healthz",
+			"/",
+			"/settings",
+			"/api/status",
+			"/api/config",
+		}
+
+		for _, path := range skipAuthPaths {
+			if r.URL.Path == path || strings.HasPrefix(r.URL.Path, path) {
+				next.ServeHTTP(w, r)
+				return
+			}
 		}
 
 		if s.cfg.APIKey == "" {

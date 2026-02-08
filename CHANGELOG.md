@@ -3,6 +3,20 @@
 ## [Unreleased] - 2026-02-08
 
 ### Added
+- **Python SDK** (`sdk/python/sandkasten`):
+  - Clean async API with `SandboxClient` and `Session` classes
+  - Type-safe with dataclasses (`ExecResult`, `SessionInfo`)
+  - Context manager support for automatic cleanup
+  - Mirrors TypeScript SDK API for consistency
+  - Comprehensive docstrings and examples
+- **Web Dashboard** (`internal/web`):
+  - Status page showing active sessions, stats, and real-time updates
+  - Settings page for editing `sandkasten.yaml` config in browser
+  - YAML validation before saving
+  - Auto-refresh every 5 seconds
+  - Session management (view details, destroy sessions)
+  - Dark theme UI with clean design
+  - Accessible at `/` (status) and `/settings`
 - Enhanced interactive agent (`quickstart/agent/enhanced_agent.py`) with:
   - Rich terminal UI with boxes, colors, and panels
   - Streaming responses (token-by-token) using `Runner.run_streamed()`
@@ -33,6 +47,8 @@
 - Quickstart daemon configured with `network_mode: full` by default
 - Agent instructions enhanced with package management guidance
 - Updated all quickstart documentation to reference uv instead of pip/requirements.txt
+- **Enhanced agent now uses Python SDK** instead of raw httpx calls (cleaner code)
+- All quickstart examples updated to use Python SDK
 
 ## [0.1.0] - 2026-02-07
 
