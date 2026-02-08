@@ -1,48 +1,85 @@
 package web
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/json"
+	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/p-arndt/sandkasten/internal/config"
+	"github.com/p-arndt/sandkasten/internal/pool"
 	"github.com/p-arndt/sandkasten/internal/store"
 
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed templates/status.html
-var statusHTML string
-
-//go:embed templates/settings.html
-var settingsHTML string
+//go:embed all:dist
+var distFS embed.FS
 
 type Handler struct {
 	store      *store.Store
+	pool       *pool.Pool
 	configPath string
 	startTime  time.Time
+	distFS     fs.FS
 }
 
-func NewHandler(store *store.Store, configPath string) *Handler {
+func NewHandler(store *store.Store, poolMgr *pool.Pool, configPath string) *Handler {
+	// Extract the dist subdirectory from the embed.FS
+	distSubFS, err := fs.Sub(distFS, "dist")
+	if err != nil {
+		// Fallback to the root FS if dist doesn't exist yet
+		distSubFS = distFS
+	}
+
 	return &Handler{
 		store:      store,
+		pool:       poolMgr,
 		configPath: configPath,
 		startTime:  time.Now(),
+		distFS:     distSubFS,
 	}
 }
 
-// ServeStatusPage serves the status page HTML
-func (h *Handler) ServeStatusPage(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(statusHTML))
-}
+// ServeSPA serves the SvelteKit static files with SPA fallback
+func (h *Handler) ServeSPA(w http.ResponseWriter, r *http.Request) {
+	// Clean the path
+	p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+	if p == "" || p == "." {
+		p = "index.html"
+	}
 
-// ServeSettingsPage serves the settings page HTML
-func (h *Handler) ServeSettingsPage(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(settingsHTML))
+	// Try to open the requested file
+	file, err := h.distFS.Open(p)
+	if err != nil {
+		// If file not found and not an asset, serve index.html for SPA routing
+		if !strings.HasPrefix(p, "_app/") && !strings.Contains(p, ".") {
+			file, err = h.distFS.Open("index.html")
+			if err != nil {
+				http.Error(w, "Not found", http.StatusNotFound)
+				return
+			}
+		} else {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+	}
+	defer file.Close()
+
+	// Get file info for serving
+	stat, err := file.Stat()
+	if err != nil {
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Serve the file
+	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file.(io.ReadSeeker))
 }
 
 // GetStatus returns status JSON for the dashboard
@@ -75,6 +112,14 @@ func (h *Handler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"expired_sessions": expired,
 		"sessions":         sessions,
 		"uptime_seconds":   int(time.Since(h.startTime).Seconds()),
+	}
+
+	// Add pool status if pool is available
+	if h.pool != nil {
+		poolStatus := h.pool.Status()
+		if poolStatus.Enabled || len(poolStatus.Images) > 0 {
+			response["pool"] = poolStatus
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

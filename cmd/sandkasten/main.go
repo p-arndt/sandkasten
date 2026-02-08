@@ -85,7 +85,7 @@ func main() {
 	rpr.SetSessionManager(mgr)
 	go rpr.Run(ctx)
 
-	srv := api.NewServer(cfg, mgr, st, *cfgPath, logger)
+	srv := api.NewServer(cfg, mgr, st, poolMgr, *cfgPath, logger)
 
 	httpServer := &http.Server{
 		Addr:         cfg.Listen,

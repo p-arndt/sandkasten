@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/p-arndt/sandkasten/internal/config"
+	"github.com/p-arndt/sandkasten/internal/pool"
 	"github.com/p-arndt/sandkasten/internal/session"
 	"github.com/p-arndt/sandkasten/internal/store"
 	"github.com/p-arndt/sandkasten/internal/web"
@@ -19,13 +20,13 @@ type Server struct {
 	webHandler *web.Handler
 }
 
-func NewServer(cfg *config.Config, mgr *session.Manager, st *store.Store, configPath string, logger *slog.Logger) *Server {
+func NewServer(cfg *config.Config, mgr *session.Manager, st *store.Store, poolMgr *pool.Pool, configPath string, logger *slog.Logger) *Server {
 	s := &Server{
 		cfg:        cfg,
 		manager:    mgr,
 		logger:     logger,
 		mux:        http.NewServeMux(),
-		webHandler: web.NewHandler(st, configPath),
+		webHandler: web.NewHandler(st, poolMgr, configPath),
 	}
 	s.routes()
 	return s
@@ -50,10 +51,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/workspaces", s.handleListWorkspaces)
 	s.mux.HandleFunc("DELETE /v1/workspaces/{id}", s.handleDeleteWorkspace)
 
-	// Web UI routes (no auth for viewing)
-	s.mux.HandleFunc("GET /", s.webHandler.ServeStatusPage)
-	s.mux.HandleFunc("GET /settings", s.webHandler.ServeSettingsPage)
-
 	// Web API routes (read-only: no auth, modifications: requires auth if API key set)
 	s.mux.HandleFunc("GET /api/status", s.webHandler.GetStatus)
 	s.mux.HandleFunc("GET /api/config", s.webHandler.GetConfig)
@@ -64,6 +61,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+
+	// SPA catch-all (must be last, serves SvelteKit app and handles client-side routing)
+	s.mux.HandleFunc("GET /", s.webHandler.ServeSPA)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

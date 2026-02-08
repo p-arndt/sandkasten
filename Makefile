@@ -1,4 +1,4 @@
-.PHONY: build runner images daemon clean
+.PHONY: build runner images daemon web clean
 
 # Build everything
 build: runner daemon images
@@ -7,8 +7,12 @@ build: runner daemon images
 runner:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o images/base/runner ./cmd/runner
 
-# Build the daemon binary
-daemon:
+# Build the web frontend
+web:
+	cd web && pnpm install && pnpm build
+
+# Build the daemon binary (depends on web being built first)
+daemon: web
 	go build -o bin/sandkasten ./cmd/sandkasten
 
 # Build Docker images
@@ -27,4 +31,4 @@ run: daemon
 
 # Clean build artifacts
 clean:
-	rm -f images/base/runner bin/sandkasten sandkasten.db
+	rm -rf images/base/runner bin/sandkasten internal/web/dist data/*.db

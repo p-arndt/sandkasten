@@ -14,21 +14,30 @@ const requestIDKey contextKey = "request_id"
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth for specific paths using exact matching
-		skipAuthExact := map[string]bool{
-			"/healthz":     true,
-			"/":            true,
-			"/settings":    true,
-			"/api/status":  true,
-		}
+		path := r.URL.Path
 
-		// Allow read-only config access without auth
-		if r.URL.Path == "/api/config" && r.Method == "GET" {
+		// Skip auth for static assets and SPA routes
+		if path == "/healthz" ||
+			path == "/" ||
+			path == "/api/status" ||
+			strings.HasPrefix(path, "/_app/") ||
+			strings.HasPrefix(path, "/sessions") ||
+			strings.HasPrefix(path, "/workspaces") ||
+			strings.HasPrefix(path, "/settings") ||
+			(strings.HasSuffix(path, ".js") ||
+				strings.HasSuffix(path, ".css") ||
+				strings.HasSuffix(path, ".svg") ||
+				strings.HasSuffix(path, ".png") ||
+				strings.HasSuffix(path, ".ico") ||
+				strings.HasSuffix(path, ".woff") ||
+				strings.HasSuffix(path, ".woff2") ||
+				strings.HasSuffix(path, ".ttf")) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		if skipAuthExact[r.URL.Path] {
+		// Allow read-only config access without auth
+		if path == "/api/config" && r.Method == "GET" {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -213,3 +213,42 @@ func generatePoolSessionID() string {
 	suffix := time.Now().UnixNano() % 100000
 	return fmt.Sprintf("pool-%s-%05d", timestamp, suffix)
 }
+
+// PoolStatus represents the current state of the pool.
+type PoolStatus struct {
+	Enabled bool                    `json:"enabled"`
+	Images  map[string]ImageStatus  `json:"images"`
+}
+
+// ImageStatus represents the status of a single image pool.
+type ImageStatus struct {
+	Target  int `json:"target"`
+	Current int `json:"current"`
+}
+
+// Status returns the current pool status.
+func (p *Pool) Status() PoolStatus {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	images := make(map[string]ImageStatus)
+	for image, ch := range p.pools {
+		// Find target size from config
+		target := 0
+		for cfgImage, size := range p.cfg.Pool.Images {
+			if cfgImage == image {
+				target = size
+				break
+			}
+		}
+		images[image] = ImageStatus{
+			Target:  target,
+			Current: len(ch),
+		}
+	}
+
+	return PoolStatus{
+		Enabled: p.running && p.cfg.Pool.Enabled,
+		Images:  images,
+	}
+}
