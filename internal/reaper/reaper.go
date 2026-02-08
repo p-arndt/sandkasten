@@ -4,9 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"time"
-
-	"github.com/p-arndt/sandkasten/internal/docker"
-	"github.com/p-arndt/sandkasten/internal/store"
 )
 
 // SessionManager interface for lock cleanup
@@ -15,14 +12,14 @@ type SessionManager interface {
 }
 
 type Reaper struct {
-	store          *store.Store
-	docker         *docker.Client
+	store          ReaperStore
+	docker         ReaperDocker
 	sessionManager SessionManager
 	interval       time.Duration
 	logger         *slog.Logger
 }
 
-func New(st *store.Store, dc *docker.Client, interval time.Duration, logger *slog.Logger) *Reaper {
+func New(st ReaperStore, dc ReaperDocker, interval time.Duration, logger *slog.Logger) *Reaper {
 	return &Reaper{
 		store:    st,
 		docker:   dc,

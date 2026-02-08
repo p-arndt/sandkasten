@@ -28,7 +28,7 @@ Start the Go daemon and SvelteKit dev server in parallel:
 
 ```bash
 # Terminal 1: Run the Go daemon
-make run
+task run
 
 # Terminal 2: Run the dev server
 cd web
@@ -42,7 +42,7 @@ The dev server runs on `http://localhost:5173` and proxies API requests to the G
 The dashboard is built as static files and embedded into the Go binary:
 
 ```bash
-make daemon  # Builds web first, then compiles Go binary with embedded assets
+task daemon  # Builds web first, then compiles Go binary with embedded assets
 ```
 
 Static files are output to `../internal/web/dist/` and embedded using Go's `embed.FS`.

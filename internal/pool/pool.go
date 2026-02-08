@@ -9,14 +9,12 @@ import (
 
 	"github.com/p-arndt/sandkasten/internal/config"
 	"github.com/p-arndt/sandkasten/internal/docker"
-	"github.com/p-arndt/sandkasten/internal/store"
 )
 
 // Pool maintains pre-warmed containers ready for instant use.
 type Pool struct {
 	cfg     *config.Config
-	docker  *docker.Client
-	store   *store.Store
+	docker  PoolDocker
 	logger  *slog.Logger
 	pools   map[string]chan string // image -> channel of ready container IDs
 	mu      sync.RWMutex
@@ -30,11 +28,10 @@ type PoolConfig struct {
 	Size  int
 }
 
-func New(cfg *config.Config, dc *docker.Client, st *store.Store, logger *slog.Logger) *Pool {
+func New(cfg *config.Config, dc PoolDocker, logger *slog.Logger) *Pool {
 	return &Pool{
 		cfg:    cfg,
 		docker: dc,
-		store:  st,
 		logger: logger,
 		pools:  make(map[string]chan string),
 		stopCh: make(chan struct{}),

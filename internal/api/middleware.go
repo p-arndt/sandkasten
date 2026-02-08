@@ -16,7 +16,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Skip auth for static assets and SPA routes
+		// Skip auth for static assets and SPA routes only (not /api/*)
 		if path == "/healthz" ||
 			path == "/" ||
 			path == "/api/status" ||
@@ -35,12 +35,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-
-		// Allow read-only config access without auth
-		if path == "/api/config" && r.Method == "GET" {
-			next.ServeHTTP(w, r)
-			return
-		}
+		// /api/config (GET, PUT) and /api/config/validate (POST) require auth when API key is set (see below)
 
 		if s.cfg.APIKey == "" {
 			// No API key configured — open access (dev mode).

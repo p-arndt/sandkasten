@@ -4,19 +4,67 @@ images/base/runner
 *.db
 *.db-shm
 *.db-wal
+coverage.out
+.task/
+
+# Web frontend (built inside Docker)
+web/node_modules/
+web/.svelte-kit/
+web/build/
+internal/web/dist/
 
 # SDK
 sdk/node_modules/
 sdk/dist/
+sdk/python/__pycache__/
+sdk/python/*.pyc
+sdk/python/dist/
+sdk/python/*.egg-info/
 
-# IDE
+# IDE & Editor
 .vscode/
 .idea/
 .claude/
+.cursor/
+*.swp
+*.swo
+*~
 
-# Data
+# Data & Logs
 data/
+*.log
+
+# Documentation (not needed in image)
+docs/
+*.md
+!README.md
+
+# Quickstart examples (not needed in image)
+quickstart/
+
+# Tests (not needed in image)
+tests/
+*_test.go
 
 # Git
 .git/
 .gitignore
+.gitattributes
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.bak
+*.tmp
+*.cache

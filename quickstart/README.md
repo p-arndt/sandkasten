@@ -51,7 +51,7 @@ From the **repo root** (one directory up):
 
 ```bash
 cd ..
-make images
+task images
 cd quickstart
 ```
 
@@ -223,7 +223,7 @@ docker-compose logs
 You need to build images first:
 ```bash
 cd ..
-make images
+task images
 ```
 
 ### Agent hangs or times out

@@ -14,28 +14,36 @@ Sandkasten is a self-hosted sandbox runtime for AI agents. It provides stateful 
 
 ## Build Commands
 
+We use [Task](https://taskfile.dev/) instead of Make for build automation.
+
 ```bash
 # Build everything (runner binary, daemon, Docker images)
-make build
+task build
 
 # Build individual components
-make runner          # Build runner binary (static Linux binary)
-make daemon          # Build sandkasten daemon
-make images          # Build all Docker images (base, python, node)
-make image-base      # Build just base image (faster iteration)
+task runner      # Build runner binary (static Linux binary)
+task daemon      # Build sandkasten daemon
+task images      # Build all Docker images (base, python, node)
+task image-base  # Build just base image (faster iteration)
 
 # Run daemon locally
-make run
+task run
 
 # Clean build artifacts
-make clean
+task clean
+
+# List all available tasks
+task --list
 ```
 
-**Important:** Go 1.25.7 on this system has broken runtime. Use `go vet ./...` for checking, but `make` commands handle builds correctly with proper flags.
+**Important:** Go 1.25.7 on this system has broken runtime. Use `go vet ./...` for checking, but `task` commands handle builds correctly with proper flags.
 
 ## Running the Daemon
 
 ```bash
+# Build and run with Task
+task run
+
 # With config file
 ./bin/sandkasten --config sandkasten.yaml
 
@@ -223,7 +231,9 @@ Do not weaken these defaults without explicit justification.
 
 **Start daemon in dev:**
 ```bash
-make build && ./bin/sandkasten --config quickstart/daemon/sandkasten.yaml
+task build && ./bin/sandkasten --config quickstart/daemon/sandkasten.yaml
+# Or simply:
+task run
 ```
 
 **View dashboard:**

@@ -35,8 +35,8 @@ todos:
   - id: go-router
     content: Update router.go to use SPA catch-all handler and update auth middleware for static assets
     status: completed
-  - id: makefile
-    content: Update Makefile with web build target, make daemon depend on web
+  - id: taskfile
+    content: Update Taskfile with web build target, task daemon depends on web
     status: completed
   - id: cleanup
     content: Remove old HTML templates (internal/web/templates/) and update README
@@ -215,22 +215,26 @@ Pass pool reference to `web.Handler` so `GetStatus` can include pool info in its
 - Add path prefix check: skip auth for paths starting with `/_app/` and other static file extensions
 - Keep existing API auth logic unchanged
 
-## 5. Makefile Updates ([Makefile](Makefile))
+## 5. Taskfile Updates ([Taskfile.yml](Taskfile.yml))
 
-Add `web` target:
+Add `web` task and make `daemon` depend on it:
 
-```makefile
+```yaml
 web:
-	cd web && pnpm install && pnpm build
+  desc: Build the web frontend
+  dir: web
+  cmds:
+    - pnpm install
+    - pnpm build
 
-daemon: web
-	go build -o bin/sandkasten ./cmd/sandkasten
-
-clean:
-	rm -rf internal/web/dist images/base/runner bin/sandkasten sandkasten.db
+daemon:
+  desc: Build the sandkasten daemon
+  deps: [web]
+  cmds:
+    - go build -o bin/sandkasten ./cmd/sandkasten
 ```
 
-The `daemon` target now depends on `web`, ensuring the frontend is built before Go embeds it.
+The `daemon` task now depends on `web`, ensuring the frontend is built before Go embeds it.
 
 ## 6. Delete Old Templates
 

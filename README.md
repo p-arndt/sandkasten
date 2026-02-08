@@ -32,7 +32,7 @@ async with SandboxClient(base_url="...", api_key="...") as client:
 cd quickstart/daemon && docker-compose up -d
 
 # Or build from source
-make build && ./sandkasten --config sandkasten.yaml
+task build && ./bin/sandkasten --config sandkasten.yaml
 ```
 
 ### 2. Run Example Agent
@@ -128,13 +128,97 @@ result = await session.exec("python3 user_code.py", timeout_ms=5000)
 ```bash
 git clone https://github.com/yourusername/sandkasten
 cd sandkasten
-make build
+task build
 ```
 
 This builds:
 - `sandkasten` daemon binary
 - `runner` binary (embedded in images)
 - Docker images: `sandbox-runtime:base`, `:python`, `:node`
+
+## Development
+
+### Quick Start
+
+```bash
+# Prerequisites: Go 1.24+, Node.js 18+, pnpm, Docker, Task CLI
+
+# Build everything once
+task build
+
+# Or build without Docker images (faster)
+task daemon-only && task runner && task image-base
+```
+
+### Development Workflows
+
+**Backend Development (daemon + API)**
+
+Terminal 1: Build and run daemon
+```bash
+task dev  # Builds daemon and runs it
+# or
+task daemon-only && task run
+```
+
+Terminal 2 (optional): Develop web separately
+```bash
+cd web && pnpm dev  # Dev server at http://localhost:5173, proxies API to :8080
+```
+
+**Frontend Development (web dashboard)**
+
+Terminal 1: Run daemon with embedded web
+```bash
+task daemon-only && task run
+# or use existing build: task run
+```
+
+Terminal 2: Web dev server
+```bash
+cd web && pnpm install && pnpm dev
+# Proxy at localhost:5173 → daemon at localhost:8080
+```
+
+**Runner/Container Development**
+
+```bash
+task runner           # Build runner binary
+task image-base       # Build base Docker image (fast)
+task images           # Build all images (python, node, base)
+```
+
+**Testing**
+
+```bash
+task test             # Unit tests
+task test-race        # With race detector
+task test-e2e         # Integration tests (requires Docker images)
+```
+
+### Build Tasks Reference
+
+| Task | Purpose |
+|------|---------|
+| `task build` | Build everything (runner, daemon, web, images) |
+| `task daemon` | Build daemon with embedded web (production) |
+| `task daemon-only` | Build daemon without web dependency |
+| `task runner` | Build static runner binary |
+| `task image-base` | Build base Docker image |
+| `task images` | Build all Docker images |
+| `task dev` | Build and run daemon |
+| `task run` | Run daemon (assumes pre-built) |
+
+### Architecture
+
+Three-layer design:
+- **Runner** (`cmd/runner/`) - PID 1 in containers, persistent PTY bash
+- **Daemon** (`cmd/sandkasten/`) - HTTP API, Docker orchestration, SQLite state
+- **Web** (`web/`) - SvelteKit 5 dashboard, embedded in daemon binary
+
+Core packages: `internal/api/`, `internal/session/`, `internal/docker/`, `internal/store/`, `internal/pool/`, `internal/reaper/`
+
+Key detail: Exec commands are serialized per-session with a mutex, preserving shell state across requests.
 
 ## Configuration
 

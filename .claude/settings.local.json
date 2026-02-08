@@ -11,7 +11,8 @@
       "WebFetch(domain:openai.github.io)",
       "Bash(uv run python:*)",
       "Bash(grep:*)",
-      "Bash(make build:*)"
+      "Bash(task build:*)",
+      "Bash(go test:*)"
     ]
   }
 }

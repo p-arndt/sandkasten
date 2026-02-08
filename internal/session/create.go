@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/p-arndt/sandkasten/internal/docker"
-	"github.com/p-arndt/sandkasten/internal/store"
+	storemod "github.com/p-arndt/sandkasten/internal/store"
 	"github.com/p-arndt/sandkasten/protocol"
 )
 
@@ -37,7 +37,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 	}
 
 	// Persist session to store
-	sess := &store.Session{
+	sess := &storemod.Session{
 		ID:           sessionID,
 		Image:        image,
 		ContainerID:  containerID,

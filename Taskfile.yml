@@ -1,0 +1,149 @@
+version: '3'
+
+tasks:
+  # Build everything
+  build:
+    desc: Build everything (runner, daemon, Docker images)
+    deps: [runner, daemon, images]
+
+  # Build the runner binary (static, linux)
+  runner:
+    desc: Build the runner binary (static Linux binary)
+    cmds:
+      - go build -o images/base/runner ./cmd/runner
+    env:
+      CGO_ENABLED: 0
+      GOOS: linux
+      GOARCH: amd64
+    sources:
+      - cmd/runner/**/*.go
+      - protocol/**/*.go
+    generates:
+      - images/base/runner
+
+  # Build the web frontend (for production embedding)
+  web:
+    desc: Build the web frontend for production
+    dir: web
+    cmds:
+      - pnpm install
+      - pnpm build
+    sources:
+      - src/**/*
+      - package.json
+      - pnpm-lock.yaml
+    generates:
+      - ../internal/web/dist/**/*
+
+  # Build daemon with embedded web (production)
+  daemon:
+    desc: Build daemon with embedded web (production)
+    deps: [web]
+    cmds:
+      - go build -o bin/sandkasten{{exeExt}} ./cmd/sandkasten
+    sources:
+      - cmd/sandkasten/**/*.go
+      - internal/**/*.go
+      - protocol/**/*.go
+    generates:
+      - bin/sandkasten{{exeExt}}
+
+  # Build daemon only (skips web embedding, for development)
+  daemon-only:
+    desc: Build daemon only (skips web for fast development)
+    cmds:
+      - go build -o bin/sandkasten{{exeExt}} ./cmd/sandkasten
+    sources:
+      - cmd/sandkasten/**/*.go
+      - internal/**/*.go
+      - protocol/**/*.go
+    generates:
+      - bin/sandkasten{{exeExt}}
+
+  # Build daemon for Windows (.exe) — platform-specific
+  daemon-windows:
+    desc: Build daemon for Windows (produces bin/sandkasten.exe)
+    platforms: [windows]
+    deps: [web]
+    cmds:
+      - go build -o bin/sandkasten.exe ./cmd/sandkasten
+    sources:
+      - cmd/sandkasten/**/*.go
+      - internal/**/*.go
+      - protocol/**/*.go
+    generates:
+      - bin/sandkasten.exe
+
+  # Build Docker images
+  images:
+    desc: Build all Docker images (base, python, node)
+    deps: [runner]
+    cmds:
+      - docker build -t sandbox-runtime:base ./images/base
+      - docker build -t sandbox-runtime:python ./images/python
+      - docker build -t sandbox-runtime:node ./images/node
+
+  # Build just base image (fastest iteration)
+  image-base:
+    desc: Build just base image (faster iteration)
+    deps: [runner]
+    cmds:
+      - docker build -t sandbox-runtime:base ./images/base
+
+  # Run the daemon (assumes already built)
+  run:
+    desc: Run the daemon locally
+    cmds:
+      - ./bin/sandkasten{{exeExt}}
+
+  # Build and run daemon (development); restarts when Go files change
+  dev:
+    desc: Build and run daemon for development
+    deps: [daemon-only]
+    # watch: true
+    # sources:
+    #   - '**/*.go'
+    cmds:
+      - ./bin/sandkasten{{exeExt}} --config ./sandkasten-dev.yaml
+
+  # Run unit tests
+  test:
+    desc: Run all unit tests
+    cmds:
+      - go test ./... -v -count=1
+
+  # Run unit tests with race detector
+  test-race:
+    desc: Run all unit tests with race detector
+    cmds:
+      - go test ./... -v -race -count=1
+
+  # Run E2E integration tests (requires Docker + built images)
+  test-e2e:
+    desc: Run integration tests
+    cmds:
+      - go test -v -count=1 -tags=integration -timeout=5m ./tests/integration/...
+
+  # Run all tests
+  test-all:
+    desc: Run all tests (unit + integration)
+    deps: [test-race, test-e2e]
+
+  # Generate coverage report
+  test-cover:
+    desc: Generate test coverage report
+    cmds:
+      - go test ./... -coverprofile=coverage.out
+      - go tool cover -func=coverage.out
+
+  # Build Docker image for daemon
+  docker:
+    desc: Build Docker image for the daemon (includes web build)
+    cmds:
+      - docker build -f Dockerfile.daemon -t sandkasten:latest .
+
+  # Clean build artifacts
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf images/base/runner bin/sandkasten bin/sandkasten.exe internal/web/dist data/*.db coverage.out

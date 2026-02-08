@@ -126,4 +126,4 @@
 - TypeScript SDK
 - OpenAI Agents SDK example
 - Comprehensive README with API documentation
-- Makefile for building all components
+- Taskfile for building all components

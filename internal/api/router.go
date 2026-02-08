@@ -7,20 +7,19 @@ import (
 
 	"github.com/p-arndt/sandkasten/internal/config"
 	"github.com/p-arndt/sandkasten/internal/pool"
-	"github.com/p-arndt/sandkasten/internal/session"
 	"github.com/p-arndt/sandkasten/internal/store"
 	"github.com/p-arndt/sandkasten/internal/web"
 )
 
 type Server struct {
 	cfg        *config.Config
-	manager    *session.Manager
+	manager    SessionService
 	logger     *slog.Logger
 	mux        *http.ServeMux
 	webHandler *web.Handler
 }
 
-func NewServer(cfg *config.Config, mgr *session.Manager, st *store.Store, poolMgr *pool.Pool, configPath string, logger *slog.Logger) *Server {
+func NewServer(cfg *config.Config, mgr SessionService, st *store.Store, poolMgr *pool.Pool, configPath string, logger *slog.Logger) *Server {
 	s := &Server{
 		cfg:        cfg,
 		manager:    mgr,

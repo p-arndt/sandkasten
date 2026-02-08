@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/p-arndt/sandkasten/internal/store"
+	storemod "github.com/p-arndt/sandkasten/internal/store"
 	"github.com/p-arndt/sandkasten/protocol"
 )
 
@@ -102,7 +102,7 @@ func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeout
 }
 
 // validateSession checks if a session exists and is valid for execution.
-func (m *Manager) validateSession(sessionID string) (*store.Session, error) {
+func (m *Manager) validateSession(sessionID string) (*storemod.Session, error) {
 	sess, err := m.store.GetSession(sessionID)
 	if err != nil {
 		return nil, err

@@ -13,6 +13,7 @@ Usage:
     export OPENAI_API_KEY="sk-..."
     uv run enhanced_agent.py
 """
+from agents.extensions.models.litellm_model import LitellmModel
 
 import asyncio
 import os
@@ -24,7 +25,8 @@ from pathlib import Path
 sdk_path = Path(__file__).parent.parent.parent / "sdk" / "python"
 sys.path.insert(0, str(sdk_path))
 
-from agents import Agent, Runner, SQLiteSession, function_tool
+from agents import Agent, Runner, SQLiteSession, function_tool, RunConfig
+from agents.exceptions import MaxTurnsExceeded
 from openai.types.responses import ResponseTextDeltaEvent
 from rich.console import Console
 from rich.panel import Panel
@@ -39,6 +41,7 @@ from sandkasten import SandboxClient, Session
 SANDKASTEN_URL = "http://localhost:8080"
 SANDKASTEN_API_KEY = "sk-sandbox-quickstart"
 SESSION_DB = "conversation_history.db"
+MAX_TURNS = 50
 
 # Global state
 console = Console()
@@ -113,7 +116,14 @@ async def read_file(path: str) -> str:
 
 
 # Define the agent
-
+    # Configure Vertex AI model via LiteLLM
+    # Environment variables required:
+    #   - GOOGLE_APPLICATION_CREDENTIALS: Path to service account JSON
+    #   - VERTEXAI_PROJECT: Google Cloud project ID
+    #   - VERTEXAI_LOCATION: Optional, defaults to us-central1
+# os.environ["VERTEXAI_PROJECT"] = "sandkasten-447013"
+os.environ["VERTEXAI_LOCATION"] = "global"
+model = LitellmModel("vertex_ai/gemini-3-flash-preview")
 agent = Agent(
     name="coding-assistant",
     instructions="""You are a helpful coding assistant with access to a Linux sandbox.
@@ -144,6 +154,7 @@ Always:
 5. Use pre-installed packages when possible to save time
 """,
     tools=[exec, write_file, read_file],
+    model=model,
 )
 
 
@@ -183,6 +194,8 @@ def print_help():
   • [cyan]/clear[/cyan] - Clear conversation history
   • [cyan]/help[/cyan] - Show this help
   • [cyan]/quit[/cyan] or [cyan]/exit[/cyan] - Exit
+
+When max turns are reached you will be asked whether to continue.
     """
     console.print(Panel(help_text.strip(), title="Help", border_style="blue", box=box.ROUNDED))
     console.print()
@@ -261,6 +274,7 @@ async def run_with_streaming(user_input: str):
         agent,
         input=user_input,
         session=conversation_session,
+        max_turns=MAX_TURNS,
     )
 
     async for event in result.stream_events():
@@ -350,8 +364,22 @@ async def interactive_loop():
                 console.print("[yellow]Conversation history cleared.[/yellow]\n")
                 continue
 
-            # Run agent with streaming
-            await run_with_streaming(user_input)
+            # Run agent with streaming; on max turns, ask to continue
+            current_input = user_input
+            while True:
+                try:
+                    await run_with_streaming(current_input)
+                    break
+                except MaxTurnsExceeded:
+                    console.print("\n[yellow]Max turns reached.[/yellow]")
+                    try:
+                        resp = console.input("Continue? (y/n): ").strip().lower()
+                    except EOFError:
+                        break
+                    if resp in ("y", "yes"):
+                        current_input = "Please continue from where you left off."
+                    else:
+                        break
 
     except KeyboardInterrupt:
         console.print("\n\n[yellow]Interrupted.[/yellow]")

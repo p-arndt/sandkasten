@@ -64,7 +64,7 @@ func main() {
 	wm := workspace.NewManager(dc.DockerClient())
 
 	// Initialize pool manager
-	poolMgr := pool.New(cfg, dc, st, logger)
+	poolMgr := pool.New(cfg, dc, logger)
 
 	// Start pool if enabled
 	if cfg.Pool.Enabled && len(cfg.Pool.Images) > 0 {

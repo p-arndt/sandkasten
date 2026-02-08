@@ -184,13 +184,13 @@
 					<Table.Body>
 						{#each status.sessions.slice(0, 5) as session}
 							<Table.Row>
-								<Table.Cell class="font-mono text-xs">{session.id.substring(0, 12)}...</Table.Cell>
-								<Table.Cell>{session.image}</Table.Cell>
+								<Table.Cell class="font-mono text-xs">{session.id ? `${session.id.substring(0, 12)}...` : '-'}</Table.Cell>
+								<Table.Cell>{session.image ?? '-'}</Table.Cell>
 								<Table.Cell>
-									<Badge variant={getStatusColor(session.status)}>{session.status}</Badge>
+									<Badge variant={getStatusColor(session.status ?? '')}>{session.status ?? '-'}</Badge>
 								</Table.Cell>
-								<Table.Cell class="text-muted-foreground" title={formatTimestamp(session.created_at)}>
-									{formatRelativeTime(session.created_at)}
+								<Table.Cell class="text-muted-foreground" title={session.created_at ? formatTimestamp(session.created_at) : ''}>
+									{session.created_at ? formatRelativeTime(session.created_at) : '-'}
 								</Table.Cell>
 							</Table.Row>
 						{/each}

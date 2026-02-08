@@ -6,10 +6,6 @@ import (
 	"time"
 
 	"github.com/p-arndt/sandkasten/internal/config"
-	"github.com/p-arndt/sandkasten/internal/docker"
-	"github.com/p-arndt/sandkasten/internal/pool"
-	"github.com/p-arndt/sandkasten/internal/store"
-	"github.com/p-arndt/sandkasten/internal/workspace"
 )
 
 // Sentinel errors for structured error handling
@@ -23,17 +19,17 @@ var (
 
 type Manager struct {
 	cfg       *config.Config
-	store     *store.Store
-	docker    *docker.Client
-	pool      *pool.Pool
-	workspace *workspace.Manager
+	store     SessionStore
+	docker    DockerClient
+	pool      ContainerPool
+	workspace WorkspaceManager
 
 	// Per-session mutexes to serialize exec calls
 	locks   map[string]*sync.Mutex
 	locksMu sync.Mutex
 }
 
-func NewManager(cfg *config.Config, st *store.Store, dc *docker.Client, p *pool.Pool, ws *workspace.Manager) *Manager {
+func NewManager(cfg *config.Config, st SessionStore, dc DockerClient, p ContainerPool, ws WorkspaceManager) *Manager {
 	return &Manager{
 		cfg:       cfg,
 		store:     st,
@@ -81,13 +77,13 @@ func (m *Manager) isImageAllowed(image string) bool {
 	return false
 }
 
-// Store returns the underlying store (used by reaper).
-func (m *Manager) Store() *store.Store {
+// Store returns the underlying store.
+func (m *Manager) Store() SessionStore {
 	return m.store
 }
 
-// Docker returns the underlying docker client (used by reaper).
-func (m *Manager) Docker() *docker.Client {
+// Docker returns the underlying docker client.
+func (m *Manager) Docker() DockerClient {
 	return m.docker
 }
 

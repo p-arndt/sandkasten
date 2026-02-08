@@ -9,7 +9,7 @@ if ! docker images | grep -q "sandbox-runtime"; then
     echo "❌ Sandbox images not found. Building..."
     echo ""
     cd ..
-    make images
+    task images
     cd quickstart
     echo ""
 fi

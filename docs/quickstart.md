@@ -26,7 +26,7 @@ This starts the daemon with:
 
 ```bash
 # Build
-make build
+task build
 
 # Start daemon
 ./sandkasten --config quickstart/daemon/sandkasten.yaml

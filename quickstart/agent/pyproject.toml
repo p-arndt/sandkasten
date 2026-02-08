@@ -5,7 +5,8 @@ description = "Sandkasten coding agent quickstart"
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.28.1",
-    "openai-agents>=0.8.1",
+    "litellm[google]>=1.81.9",
+    "openai-agents[litellm]>=0.8.1",
     "rich>=14.3.2",
     "sandkasten",
 ]

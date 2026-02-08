@@ -13,9 +13,12 @@ import type {
 	APIError
 } from './types';
 
+type UnauthorizedCallback = () => void;
+
 class SandkastenAPI {
 	private baseURL: string;
 	private apiKey: string | null = null;
+	private onUnauthorized: UnauthorizedCallback | null = null;
 
 	constructor(baseURL = '') {
 		this.baseURL = baseURL;
@@ -23,6 +26,11 @@ class SandkastenAPI {
 
 	setAPIKey(key: string | null) {
 		this.apiKey = key;
+	}
+
+	/** Called when a request returns 401; use to show "enter API key" UI */
+	setOnUnauthorized(cb: UnauthorizedCallback | null) {
+		this.onUnauthorized = cb;
 	}
 
 	private async request<T>(
@@ -42,6 +50,10 @@ class SandkastenAPI {
 			...options,
 			headers
 		});
+
+		if (response.status === 401) {
+			this.onUnauthorized?.();
+		}
 
 		if (!response.ok) {
 			let error: APIError;

@@ -15,15 +15,15 @@ var (
 )
 
 type Session struct {
-	ID           string
-	Image        string
-	ContainerID  string
-	Status       string
-	Cwd          string
-	WorkspaceID  string // optional persistent workspace volume
-	CreatedAt    time.Time
-	ExpiresAt    time.Time
-	LastActivity time.Time
+	ID           string    `json:"id"`
+	Image        string    `json:"image"`
+	ContainerID  string    `json:"container_id"`
+	Status       string    `json:"status"`
+	Cwd          string    `json:"cwd"`
+	WorkspaceID  string    `json:"workspace_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	LastActivity time.Time `json:"last_activity,omitempty"`
 }
 
 type Store struct {

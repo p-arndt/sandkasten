@@ -8,7 +8,7 @@ The frontend source code lives in `../../web/`. During development:
 
 ```bash
 # Terminal 1: Run the Go daemon
-make run
+task run
 
 # Terminal 2: Run the SvelteKit dev server
 cd web
@@ -22,7 +22,7 @@ The Vite dev server proxies API requests to the Go daemon on `localhost:8080`.
 In production, the SvelteKit app is built as static files and embedded into the Go binary:
 
 ```bash
-make daemon  # Automatically builds web first, then compiles Go binary
+task daemon  # Automatically builds web first, then compiles Go binary
 ```
 
 The static files are output to `internal/web/dist/` and embedded using Go's `embed.FS`.

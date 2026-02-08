@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Settings as SettingsIcon, Save, RefreshCw, CheckCircle, AlertTriangle } from '@lucide/svelte';
+	import { Settings as SettingsIcon, Save, RefreshCw, CheckCircle, AlertTriangle, Key } from '@lucide/svelte';
 	import * as Card from '$lib/components/ui/card';
 	import * as Collapsible from '$lib/components/ui/collapsible';
 	import * as Alert from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { api } from '$lib/api';
+	import { getStoredApiKey, setStoredApiKey } from '$lib/api-key';
 	import { toast } from 'svelte-sonner';
 
 	let configContent = $state('');
@@ -16,6 +18,10 @@
 	let saving = $state(false);
 	let validating = $state(false);
 	let referenceOpen = $state(false);
+
+	// API key (masked in UI when loaded from storage)
+	let apiKeyInput = $state('');
+	let apiKeySaved = $state(false);
 
 	async function loadConfig() {
 		loading = true;
@@ -70,8 +76,20 @@
 		}
 	}
 
+	function saveApiKey() {
+		const key = apiKeyInput.trim() || null;
+		setStoredApiKey(key);
+		api.setAPIKey(key);
+		apiKeyInput = '';
+		apiKeySaved = !!key;
+		toast.success(key ? 'API key saved' : 'API key cleared', {
+			description: key ? 'Key is used for all API requests.' : 'Requests will no longer send a Bearer token.'
+		});
+	}
+
 	onMount(() => {
 		loadConfig();
+		if (getStoredApiKey()) apiKeySaved = true;
 	});
 </script>
 
@@ -82,6 +100,37 @@
 			<p class="text-muted-foreground">Configure sandkasten daemon</p>
 		</div>
 	</div>
+
+	<!-- API Key -->
+	<Card.Root>
+		<Card.Header>
+			<Card.Title class="flex items-center gap-2">
+				<Key class="h-5 w-5" />
+				API Key
+			</Card.Title>
+			<Card.Description>
+				Dashboard uses this key to authenticate with the Sandkasten daemon. Use the same value as <code class="rounded bg-muted px-1 py-0.5 text-xs">api_key</code> in your daemon config. You can also set it from the banner at the top when not connected.
+			</Card.Description>
+		</Card.Header>
+		<Card.Content class="space-y-4">
+			<div class="flex gap-2">
+				<Input
+					bind:value={apiKeyInput}
+					type="password"
+					placeholder={apiKeySaved ? '••••••••••••' : 'Enter API key'}
+					class="max-w-md font-mono"
+					autocomplete="off"
+				/>
+				<Button onclick={saveApiKey}>
+					<Save class="mr-2 h-4 w-4" />
+					Save Key
+				</Button>
+			</div>
+			{#if apiKeySaved && !apiKeyInput}
+				<p class="text-xs text-muted-foreground">A key is stored. Enter a new value and save to replace, or save with an empty field to clear.</p>
+			{/if}
+		</Card.Content>
+	</Card.Root>
 
 	<!-- Warning Banner -->
 	<Alert.Root variant="destructive">
@@ -143,10 +192,8 @@
 						<Card.Title>Configuration Reference</Card.Title>
 						<Card.Description>Available configuration options</Card.Description>
 					</div>
-					<Collapsible.Trigger asChild let:builder>
-						<Button builders={[builder]} variant="ghost" size="sm">
+					<Collapsible.Trigger >
 							{referenceOpen ? 'Hide' : 'Show'}
-						</Button>
 					</Collapsible.Trigger>
 				</div>
 			</Card.Header>

@@ -2,7 +2,7 @@
 set -e
 
 echo "🏗️  Building sandbox runtime images..."
-make images
+task images
 
 echo ""
 echo "🚀 Starting Sandkasten daemon with Docker Compose..."
