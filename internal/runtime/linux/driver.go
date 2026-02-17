@@ -107,7 +107,7 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		NetworkNone: d.cfg.Defaults.NetworkMode == "none",
 	}
 
-	cmd, err := LaunchNsinit(nsConfig)
+	cmd, nsinitLog, err := LaunchNsinit(nsConfig)
 	if err != nil {
 		_ = RemoveCgroup(opts.SessionID)
 		CleanupMounts(mnt)
@@ -116,29 +116,41 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 	}
 
 	if err := cmd.Start(); err != nil {
+		logContent, _ := os.ReadFile(nsinitLog.Name())
+		_ = nsinitLog.Close()
+		_ = os.Remove(nsinitLog.Name())
 		_ = RemoveCgroup(opts.SessionID)
 		CleanupMounts(mnt)
 		d.cleanupSessionDir(sessionDir)
-		return nil, fmt.Errorf("start nsinit: %w", err)
+		return nil, fmt.Errorf("start nsinit: %w (log: %s)", err, string(logContent))
 	}
 
 	initPid := cmd.Process.Pid
 	if err := AttachToCgroup(cgPath, initPid); err != nil {
+		logContent, _ := os.ReadFile(nsinitLog.Name())
+		_ = nsinitLog.Close()
+		_ = os.Remove(nsinitLog.Name())
 		_ = KillProcessForce(initPid)
 		_ = RemoveCgroup(opts.SessionID)
 		CleanupMounts(mnt)
 		d.cleanupSessionDir(sessionDir)
-		return nil, fmt.Errorf("attach to cgroup: %w", err)
+		return nil, fmt.Errorf("attach to cgroup: %w (log: %s)", err, string(logContent))
 	}
 
 	runnerSock := filepath.Join(runHostDir, protocol.RunnerSocketName)
 	if err := d.waitForSocket(ctx, runnerSock, 10*time.Second); err != nil {
+		logContent, _ := os.ReadFile(nsinitLog.Name())
+		_ = nsinitLog.Close()
+		_ = os.Remove(nsinitLog.Name())
 		_ = KillProcessForce(initPid)
 		_ = RemoveCgroup(opts.SessionID)
 		CleanupMounts(mnt)
 		d.cleanupSessionDir(sessionDir)
-		return nil, fmt.Errorf("wait for runner socket: %w", err)
+		return nil, fmt.Errorf("wait for runner socket: %w (nsinit log: %s)", err, string(logContent))
 	}
+
+	_ = nsinitLog.Close()
+	_ = os.Remove(nsinitLog.Name())
 
 	state := protocol.SessionState{
 		SessionID:  opts.SessionID,

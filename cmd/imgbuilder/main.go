@@ -193,14 +193,22 @@ func importImage(dataDir, name, tarPath string) error {
 		return fmt.Errorf("write meta: %w", err)
 	}
 
-	runnerSrc, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("get executable: %w", err)
-	}
 	runnerDst := filepath.Join(rootfsDir, "usr", "local", "bin", "runner")
 	if err := os.MkdirAll(filepath.Dir(runnerDst), 0755); err != nil {
 		return fmt.Errorf("create runner dir: %w", err)
 	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("get executable path: %w", err)
+	}
+	binDir := filepath.Dir(exePath)
+	runnerSrc := filepath.Join(binDir, "runner")
+
+	if _, err := os.Stat(runnerSrc); os.IsNotExist(err) {
+		return fmt.Errorf("runner binary not found at %s - run 'task build' first", runnerSrc)
+	}
+
 	if err := copyFile(runnerSrc, runnerDst); err != nil {
 		return fmt.Errorf("copy runner: %w", err)
 	}

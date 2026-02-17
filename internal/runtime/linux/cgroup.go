@@ -12,42 +12,75 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const cgroupRoot = "/sys/fs/cgroup/sandkasten"
-
 type CgroupConfig struct {
-	CPULimit   float64 // CPUs (e.g., 1.0 = 1 CPU)
-	MemLimitMB int     // Memory in MB
-	PidsLimit  int     // Max processes
+	CPULimit   float64
+	MemLimitMB int
+	PidsLimit  int
+}
+
+func getCgroupPath() string {
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) >= 3 && parts[2] != "" {
+			path := strings.TrimPrefix(parts[2], "/")
+			if path != "" {
+				return filepath.Join("/sys/fs/cgroup", path)
+			}
+		}
+	}
+	return "/sys/fs/cgroup"
 }
 
 func CgroupPath(sessionID string) string {
-	return filepath.Join(cgroupRoot, sessionID)
+	base := getCgroupPath()
+	return filepath.Join(base, "sandkasten", sessionID)
 }
 
 func CreateCgroup(sessionID string, cfg CgroupConfig) (string, error) {
 	cgPath := CgroupPath(sessionID)
+
 	if err := os.MkdirAll(cgPath, 0755); err != nil {
 		return "", fmt.Errorf("create cgroup %s: %w", cgPath, err)
 	}
 
 	if cfg.MemLimitMB > 0 {
 		memBytes := int64(cfg.MemLimitMB) * 1024 * 1024
-		if err := os.WriteFile(filepath.Join(cgPath, "memory.max"), []byte(strconv.FormatInt(memBytes, 10)), 0644); err != nil {
-			return "", fmt.Errorf("set memory.max: %w", err)
+		memPath := filepath.Join(cgPath, "memory.max")
+		if err := os.WriteFile(memPath, []byte(strconv.FormatInt(memBytes, 10)), 0644); err != nil {
+			if os.IsPermission(err) {
+				fmt.Fprintf(os.Stderr, "warning: cannot set memory limit (cgroup not delegated): %v\n", err)
+			} else {
+				return "", fmt.Errorf("set memory.max: %w", err)
+			}
 		}
 	}
 
 	if cfg.PidsLimit > 0 {
-		if err := os.WriteFile(filepath.Join(cgPath, "pids.max"), []byte(strconv.Itoa(cfg.PidsLimit)), 0644); err != nil {
-			return "", fmt.Errorf("set pids.max: %w", err)
+		pidsPath := filepath.Join(cgPath, "pids.max")
+		if err := os.WriteFile(pidsPath, []byte(strconv.Itoa(cfg.PidsLimit)), 0644); err != nil {
+			if os.IsPermission(err) {
+				fmt.Fprintf(os.Stderr, "warning: cannot set pids limit (cgroup not delegated): %v\n", err)
+			} else {
+				return "", fmt.Errorf("set pids.max: %w", err)
+			}
 		}
 	}
 
 	if cfg.CPULimit > 0 {
 		quota := int64(cfg.CPULimit * 100000)
 		cpuMax := fmt.Sprintf("%d 100000", quota)
-		if err := os.WriteFile(filepath.Join(cgPath, "cpu.max"), []byte(cpuMax), 0644); err != nil {
-			return "", fmt.Errorf("set cpu.max: %w", err)
+		cpuPath := filepath.Join(cgPath, "cpu.max")
+		if err := os.WriteFile(cpuPath, []byte(cpuMax), 0644); err != nil {
+			if os.IsPermission(err) {
+				fmt.Fprintf(os.Stderr, "warning: cannot set cpu limit (cgroup not delegated): %v\n", err)
+			} else {
+				return "", fmt.Errorf("set cpu.max: %w", err)
+			}
 		}
 	}
 

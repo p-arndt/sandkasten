@@ -157,15 +157,20 @@ func dropCapabilities() error {
 	return nil
 }
 
-func LaunchNsinit(cfg NsinitConfig) (*exec.Cmd, error) {
+func LaunchNsinit(cfg NsinitConfig) (*exec.Cmd, *os.File, error) {
 	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("marshal nsinit config: %w", err)
+		return nil, nil, fmt.Errorf("marshal nsinit config: %w", err)
 	}
 
 	selfPath, err := os.Executable()
 	if err != nil {
-		return nil, fmt.Errorf("get executable path: %w", err)
+		return nil, nil, fmt.Errorf("get executable path: %w", err)
+	}
+
+	logFile, err := os.CreateTemp("", "sandkasten-nsinit-*.log")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create log file: %w", err)
 	}
 
 	cmd := exec.Command(selfPath)
@@ -186,12 +191,12 @@ func LaunchNsinit(cfg NsinitConfig) (*exec.Cmd, error) {
 	}
 
 	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 
 	cmd.SysProcAttr.Setsid = true
 
-	return cmd, nil
+	return cmd, logFile, nil
 }
 
 func WaitProcess(cmd *exec.Cmd) error {
