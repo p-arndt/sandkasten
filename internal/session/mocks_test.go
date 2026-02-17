@@ -4,37 +4,52 @@ import (
 	"context"
 	"time"
 
-	"github.com/p-arndt/sandkasten/internal/docker"
+	"github.com/p-arndt/sandkasten/internal/runtime"
 	"github.com/p-arndt/sandkasten/internal/store"
-	"github.com/p-arndt/sandkasten/internal/workspace"
 	"github.com/p-arndt/sandkasten/protocol"
 	"github.com/stretchr/testify/mock"
 )
 
-// MockDockerClient mocks the DockerClient interface.
-type MockDockerClient struct {
+type MockRuntimeDriver struct {
 	mock.Mock
 }
 
-func (m *MockDockerClient) CreateContainer(ctx context.Context, opts docker.CreateOpts) (string, error) {
+func (m *MockRuntimeDriver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.SessionInfo, error) {
 	args := m.Called(ctx, opts)
-	return args.String(0), args.Error(1)
+	if info := args.Get(0); info != nil {
+		return info.(*runtime.SessionInfo), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
-func (m *MockDockerClient) ExecRunner(ctx context.Context, containerID string, req protocol.Request) (*protocol.Response, error) {
-	args := m.Called(ctx, containerID, req)
+func (m *MockRuntimeDriver) Exec(ctx context.Context, sessionID string, req protocol.Request) (*protocol.Response, error) {
+	args := m.Called(ctx, sessionID, req)
 	if resp := args.Get(0); resp != nil {
 		return resp.(*protocol.Response), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *MockDockerClient) RemoveContainer(ctx context.Context, containerID string, sessionID string) error {
-	args := m.Called(ctx, containerID, sessionID)
+func (m *MockRuntimeDriver) Destroy(ctx context.Context, sessionID string) error {
+	args := m.Called(ctx, sessionID)
 	return args.Error(0)
 }
 
-// MockSessionStore mocks the SessionStore interface.
+func (m *MockRuntimeDriver) IsRunning(ctx context.Context, sessionID string) (bool, error) {
+	args := m.Called(ctx, sessionID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockRuntimeDriver) Ping(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *MockRuntimeDriver) Close() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
 type MockSessionStore struct {
 	mock.Mock
 }
@@ -70,17 +85,6 @@ func (m *MockSessionStore) UpdateSessionStatus(id string, status string) error {
 	return args.Error(0)
 }
 
-// MockContainerPool mocks the ContainerPool interface.
-type MockContainerPool struct {
-	mock.Mock
-}
-
-func (m *MockContainerPool) Get(ctx context.Context, image string) (string, bool) {
-	args := m.Called(ctx, image)
-	return args.String(0), args.Bool(1)
-}
-
-// MockWorkspaceManager mocks the WorkspaceManager interface.
 type MockWorkspaceManager struct {
 	mock.Mock
 }
@@ -93,14 +97,6 @@ func (m *MockWorkspaceManager) Create(ctx context.Context, workspaceID string, l
 func (m *MockWorkspaceManager) Exists(ctx context.Context, workspaceID string) (bool, error) {
 	args := m.Called(ctx, workspaceID)
 	return args.Bool(0), args.Error(1)
-}
-
-func (m *MockWorkspaceManager) List(ctx context.Context) ([]*workspace.Workspace, error) {
-	args := m.Called(ctx)
-	if ws := args.Get(0); ws != nil {
-		return ws.([]*workspace.Workspace), args.Error(1)
-	}
-	return nil, args.Error(1)
 }
 
 func (m *MockWorkspaceManager) Delete(ctx context.Context, workspaceID string) error {

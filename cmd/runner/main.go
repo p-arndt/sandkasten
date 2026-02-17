@@ -9,7 +9,7 @@ import (
 	"github.com/p-arndt/sandkasten/protocol"
 )
 
-const socketPath = "/run/runner.sock"
+const socketPath = "/run/sandkasten/runner.sock"
 
 func main() {
 	// Client mode: connect to running runner, send request, print response

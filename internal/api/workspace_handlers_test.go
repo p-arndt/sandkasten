@@ -6,9 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
-	"github.com/p-arndt/sandkasten/internal/workspace"
+	"github.com/p-arndt/sandkasten/internal/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -18,9 +17,9 @@ func TestHandleListWorkspaces_Success(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("ListWorkspaces", mock.Anything).Return([]*workspace.Workspace{
-		{ID: "ws-1", CreatedAt: time.Now()},
-		{ID: "ws-2", CreatedAt: time.Now()},
+	mockMgr.On("ListWorkspaces", mock.Anything).Return([]*session.WorkspaceInfo{
+		{ID: "ws-1"},
+		{ID: "ws-2"},
 	}, nil)
 
 	req := httptest.NewRequest("GET", "/v1/workspaces", nil)

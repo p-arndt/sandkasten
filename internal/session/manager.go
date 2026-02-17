@@ -20,21 +20,18 @@ var (
 type Manager struct {
 	cfg       *config.Config
 	store     SessionStore
-	docker    DockerClient
-	pool      ContainerPool
+	runtime   RuntimeDriver
 	workspace WorkspaceManager
 
-	// Per-session mutexes to serialize exec calls
 	locks   map[string]*sync.Mutex
 	locksMu sync.Mutex
 }
 
-func NewManager(cfg *config.Config, st SessionStore, dc DockerClient, p ContainerPool, ws WorkspaceManager) *Manager {
+func NewManager(cfg *config.Config, st SessionStore, rt RuntimeDriver, ws WorkspaceManager) *Manager {
 	return &Manager{
 		cfg:       cfg,
 		store:     st,
-		docker:    dc,
-		pool:      p,
+		runtime:   rt,
 		workspace: ws,
 		locks:     make(map[string]*sync.Mutex),
 	}
@@ -82,9 +79,8 @@ func (m *Manager) Store() SessionStore {
 	return m.store
 }
 
-// Docker returns the underlying docker client.
-func (m *Manager) Docker() DockerClient {
-	return m.docker
+func (m *Manager) Runtime() RuntimeDriver {
+	return m.runtime
 }
 
 // Types

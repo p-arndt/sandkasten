@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/p-arndt/sandkasten/internal/config"
-	"github.com/p-arndt/sandkasten/internal/pool"
 	"github.com/p-arndt/sandkasten/internal/store"
 	"github.com/p-arndt/sandkasten/internal/web"
 )
@@ -19,13 +18,13 @@ type Server struct {
 	webHandler *web.Handler
 }
 
-func NewServer(cfg *config.Config, mgr SessionService, st *store.Store, poolMgr *pool.Pool, configPath string, logger *slog.Logger) *Server {
+func NewServer(cfg *config.Config, mgr SessionService, st *store.Store, configPath string, logger *slog.Logger) *Server {
 	s := &Server{
 		cfg:        cfg,
 		manager:    mgr,
 		logger:     logger,
 		mux:        http.NewServeMux(),
-		webHandler: web.NewHandler(st, poolMgr, configPath, cfg.PlaygroundConfigPath),
+		webHandler: web.NewHandler(st, configPath, cfg.PlaygroundConfigPath),
 	}
 	s.routes()
 	return s

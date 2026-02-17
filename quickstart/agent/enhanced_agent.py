@@ -43,7 +43,7 @@ from sandkasten import SandboxClient, Session
 
 # Configuration
 SANDKASTEN_URL = "http://localhost:8080"
-SANDKASTEN_API_KEY = "sk-sandbox-quickstart"
+SANDKASTEN_API_KEY = "sk-test"
 SESSION_DB = "conversation_history.db"
 MAX_TURNS = 150
 # Persistent workspace ID: files survive session destruction. Set workspace.enabled: true in daemon config.
@@ -362,7 +362,6 @@ async def interactive_loop():
             api_key=SANDKASTEN_API_KEY,
         )
         sandbox_session = await client.create_session(
-            image="sandbox-runtime:python",
             workspace_id=WORKSPACE_ID,
         )
 

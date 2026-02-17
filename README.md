@@ -1,6 +1,6 @@
-# 🏖️ Sandkasten
+# Sandkasten
 
-**Self-hosted sandbox runtime for AI agents.** Stateful Linux containers with persistent shell, file operations, and workspace management.
+**Self-hosted sandbox runtime for AI agents.** Stateful Linux sandboxes with persistent shell, file operations, and workspace management — no Docker required.
 
 ```python
 from sandkasten import SandboxClient
@@ -15,27 +15,56 @@ async with SandboxClient(base_url="...", api_key="...") as client:
 ## Features
 
 - ✅ **Stateful Sessions** - Persistent bash shell (cd, env vars, background processes)
+- ✅ **No Docker** - Native Linux sandboxing with namespaces, cgroups, overlayfs
 - ✅ **File Operations** - Read/write files in `/workspace`
 - ✅ **Multiple Runtimes** - Python, Node.js, or custom images
-- ✅ **Persistent Workspaces** - Volumes that survive session destruction
-- ✅ **Pre-warmed Pool** - Instant session creation (~50ms vs 2-3s)
+- ✅ **Persistent Workspaces** - Directories that survive session destruction
 - ✅ **Web Dashboard** - Monitor sessions, edit config
 - ✅ **Python + TypeScript SDKs** - Clean async APIs
 - ✅ **Agent-Ready** - Works with OpenAI Agents SDK, LangChain, etc.
+- ✅ **WSL2 Support** - Run on Windows via WSL2
+
+## Requirements
+
+- **Linux** with kernel 5.11+ (or WSL2 with Ubuntu 22.04+)
+- cgroups v2 mounted at `/sys/fs/cgroup`
+- overlayfs support
+- Go 1.24+ (for building)
+
+> **Note:** macOS is not supported. Use a Linux VM or WSL2.
 
 ## Quick Start
 
-### 1. Start Daemon
+### 1. Build
 
 ```bash
-# Docker Compose (easiest)
-cd quickstart/daemon && docker-compose up -d
-
-# Or build from source
-task build && ./bin/sandkasten --config sandkasten.yaml
+git clone https://github.com/yourusername/sandkasten
+cd sandkasten
+task build
 ```
 
-### 2. Run Example Agent
+### 2. Prepare Images
+
+```bash
+# Create a base rootfs (example using debootstrap)
+sudo debootstrap --variant=minbase bookworm /tmp/rootfs
+
+# Or export from Docker (build-time only)
+docker create --name temp alpine:latest
+docker export temp | gzip > /tmp/base.tar.gz
+docker rm temp
+
+# Import into sandkasten
+sudo ./bin/imgbuilder import --name base --tar /tmp/base.tar.gz
+```
+
+### 3. Start Daemon
+
+```bash
+sudo ./bin/sandkasten --config sandkasten.yaml
+```
+
+### 4. Run Example Agent
 
 ```bash
 cd quickstart/agent
@@ -43,7 +72,7 @@ export OPENAI_API_KEY="sk-..."
 uv run enhanced_agent.py
 ```
 
-### 3. Open Dashboard
+### 5. Open Dashboard
 
 ```
 http://localhost:8080
@@ -52,173 +81,128 @@ http://localhost:8080
 ## Documentation
 
 - [Quickstart Guide](./docs/quickstart.md) - Get running in 5 minutes
+- [Windows/WSL2 Setup](./docs/windows.md) - Detailed Windows instructions
 - [API Reference](./docs/api.md) - Complete HTTP API docs
 - [Configuration](./docs/configuration.md) - Config options and security
-- [Features](./docs/features/) - Workspaces, pooling, streaming
-- [Agent Examples](./quickstart/agent/) - OpenAI Agents SDK examples
+- [Architecture](#architecture) - How it works
 
 ## Architecture
 
+Sandkasten uses native Linux sandboxing instead of containers:
+
 ```
-┌─────────────────────────────────────────────┐
-│              Sandkasten Daemon              │
-├─────────────────────────────────────────────┤
-│  HTTP API → Session Manager → Docker Engine │
-│     ↓            ↓               ↓          │
-│  Sessions    Workspace        Container     │
-│  (SQLite)    Volumes          Pool          │
-└─────────────────────────────────────────────┘
-         │
-         ↓
-┌─────────────────────┐   ┌─────────────────────┐
-│  Container (Python) │   │  Container (Node)   │
-│  ┌───────────────┐  │   │  ┌───────────────┐  │
-│  │ Runner (PID1) │  │   │  │ Runner (PID1) │  │
-│  │ ↓             │  │   │  │ ↓             │  │
-│  │ bash -l (PTY) │  │   │  │ bash -l (PTY) │  │
-│  └───────────────┘  │   │  └───────────────┘  │
-│  /workspace/        │   │  /workspace/        │
-└─────────────────────┘   └─────────────────────┘
-```
-
-## Use Cases
-
-### AI Coding Agents
-
-```python
-agent = Agent(
-    name="coding-assistant",
-    instructions="You have a Linux sandbox...",
-    tools=[exec, write_file, read_file],
-)
+┌──────────────────────────────────────────────────────┐
+│                  Sandkasten Daemon                   │
+├──────────────────────────────────────────────────────┤
+│  HTTP API → Session Manager → Linux Runtime Driver   │
+│     ↓            ↓                  ↓                │
+│  Sessions    Workspaces         OverlayFS            │
+│  (SQLite)    (bind mount)       + Namespaces         │
+│                                  + Cgroups            │
+└──────────────────────────────────────────────────────┘
+          │
+          ↓ (Unix socket)
+┌──────────────────────────────────────────────────────┐
+│                  Sandbox Process                      │
+│  ┌────────────────────────────────────────────────┐  │
+│  │ Runner (PID 1)                                 │  │
+│  │ ↓                                              │  │
+│  │ bash -l (PTY) ← persistent shell state        │  │
+│  └────────────────────────────────────────────────┘  │
+│  /workspace/ ← bind mount from host                  │
+│  (overlayfs: lower=image, upper=session)             │
+└──────────────────────────────────────────────────────┘
 ```
 
-### Data Analysis
+### Isolation Mechanisms
 
-```python
-await session.exec("pip install pandas matplotlib")
-await session.write("analysis.py", script)
-result = await session.exec("python3 analysis.py")
+Each sandbox is isolated using:
+
+- **Mount namespace** - Private filesystem via overlayfs
+- **PID namespace** - Runner becomes PID 1
+- **UTS namespace** - Private hostname (`sk-<session_id>`)
+- **IPC namespace** - Isolated IPC resources
+- **Network namespace** (optional) - No network access
+- **cgroups v2** - CPU, memory, and PID limits
+- **Capabilities** - All capabilities dropped
+- **no_new_privs** - Cannot gain new privileges
+
+## Directory Layout
+
+```
+/var/lib/sandkasten/
+├── images/
+│   ├── base/
+│   │   ├── rootfs/          # Read-only base filesystem
+│   │   └── meta.json
+│   ├── python/
+│   │   ├── rootfs/
+│   │   └── meta.json
+│   └── node/
+│       ├── rootfs/
+│       └── meta.json
+├── sessions/
+│   └── <session_id>/
+│       ├── upper/           # Overlay upper (writable layer)
+│       ├── work/            # Overlay workdir
+│       ├── mnt/             # Overlay mountpoint
+│       ├── run/             # Bind mount for runner socket
+│       │   └── runner.sock
+│       └── state.json       # Runtime state
+└── workspaces/
+    └── <workspace_id>/      # Persistent workspace data
 ```
 
-### Package Testing
+## Image Management
 
-```python
-await session.exec("pip install my-package")
-await session.exec("pytest tests/")
-```
-
-### Education & Tutorials
-
-```python
-# Safe execution environment for user code
-await session.write("user_code.py", user_submitted_code)
-result = await session.exec("python3 user_code.py", timeout_ms=5000)
-```
-
-## Installation
-
-### Requirements
-
-- Docker Engine
-- Go 1.24+ (for building from source)
-
-### Build
+### Import Images
 
 ```bash
-git clone https://github.com/yourusername/sandkasten
-cd sandkasten
-task build
+# Import from tarball
+sudo ./bin/imgbuilder import --name python --tar python-rootfs.tar.gz
+
+# List available images
+./bin/imgbuilder list
+
+# Validate an image
+./bin/imgbuilder validate python
+
+# Delete an image
+sudo ./bin/imgbuilder delete python
 ```
 
-This builds:
-- `sandkasten` daemon binary
-- `runner` binary (embedded in images)
-- Docker images: `sandbox-runtime:base`, `:python`, `:node`
+### Building Images
 
-## Development
-
-### Quick Start
+**Method 1: From Docker (build-time only)**
 
 ```bash
-# Prerequisites: Go 1.24+, Node.js 18+, pnpm, Docker, Task CLI
+# Create container
+docker create --name temp python:3.12-slim
 
-# Build everything once
-task build
+# Export rootfs
+docker export temp | gzip > python.tar.gz
 
-# Or build without Docker images (faster)
-task daemon-only && task runner && task image-base
+# Import
+sudo ./bin/imgbuilder import --name python --tar python.tar.gz
+
+# Cleanup
+docker rm temp
 ```
 
-### Development Workflows
-
-**Backend Development (daemon + API)**
-
-Terminal 1: Build and run daemon
-```bash
-task dev  # Builds daemon and runs it
-# or
-task daemon-only && task run
-```
-
-Terminal 2 (optional): Develop web separately
-```bash
-cd web && pnpm dev  # Dev server at http://localhost:5173, proxies API to :8080
-```
-
-**Frontend Development (web dashboard)**
-
-Terminal 1: Run daemon with embedded web
-```bash
-task daemon-only && task run
-# or use existing build: task run
-```
-
-Terminal 2: Web dev server
-```bash
-cd web && pnpm install && pnpm dev
-# Proxy at localhost:5173 → daemon at localhost:8080
-```
-
-**Runner/Container Development**
+**Method 2: Using debootstrap (Debian/Ubuntu)**
 
 ```bash
-task runner           # Build runner binary
-task image-base       # Build base Docker image (fast)
-task images           # Build all images (python, node, base)
+sudo debootstrap --variant=minbase bookworm /tmp/python-rootfs
+sudo chroot /tmp/python-rootfs apt-get install -y python3 python3-pip
+tar -czf python.tar.gz -C /tmp/python-rootfs .
+sudo ./bin/imgbuilder import --name python --tar python.tar.gz
 ```
 
-**Testing**
+### Image Requirements
 
-```bash
-task test             # Unit tests
-task test-race        # With race detector
-task test-e2e         # Integration tests (requires Docker images)
-```
-
-### Build Tasks Reference
-
-| Task | Purpose |
-|------|---------|
-| `task build` | Build everything (runner, daemon, web, images) |
-| `task daemon` | Build daemon with embedded web (production) |
-| `task daemon-only` | Build daemon without web dependency |
-| `task runner` | Build static runner binary |
-| `task image-base` | Build base Docker image |
-| `task images` | Build all Docker images |
-| `task dev` | Build and run daemon |
-| `task run` | Run daemon (assumes pre-built) |
-
-### Architecture
-
-Three-layer design:
-- **Runner** (`cmd/runner/`) - PID 1 in containers, persistent PTY bash
-- **Daemon** (`cmd/sandkasten/`) - HTTP API, Docker orchestration, SQLite state
-- **Web** (`web/`) - SvelteKit 5 dashboard, embedded in daemon binary
-
-Core packages: `internal/api/`, `internal/session/`, `internal/docker/`, `internal/store/`, `internal/pool/`, `internal/reaper/`
-
-Key detail: Exec commands are serialized per-session with a mutex, preserving shell state across requests.
+Each image must contain:
+- `/bin/sh` - Basic shell
+- `/usr/local/bin/runner` - Runner binary (auto-copied on import)
 
 ## Configuration
 
@@ -227,21 +211,55 @@ Minimal `sandkasten.yaml`:
 ```yaml
 listen: "127.0.0.1:8080"
 api_key: "sk-your-secret-key"
+data_dir: "/var/lib/sandkasten"
 ```
 
-Full example with all features:
+Full example:
 
 ```yaml
-# See quickstart/daemon/sandkasten-full.yaml
+listen: "127.0.0.1:8080"
+api_key: "sk-your-secret-key"
+data_dir: "/var/lib/sandkasten"
+default_image: "python"
+allowed_images: ["base", "python", "node"]
+session_ttl_seconds: 1800
+
+defaults:
+  cpu_limit: 1.0
+  mem_limit_mb: 512
+  pids_limit: 256
+  max_exec_timeout_ms: 120000
+  network_mode: "none"
+
 workspace:
   enabled: true
-pool:
-  enabled: true
-  images:
-    sandbox-runtime:python: 3
+  persist_by_default: false
+
+security:
+  seccomp: "off"  # off | mvp
 ```
 
-See [Configuration Guide](./docs/configuration.md) for details.
+See [Configuration Guide](./docs/configuration.md) for all options.
+
+## WSL2 Support
+
+Sandkasten runs on Windows via WSL2:
+
+```powershell
+# In PowerShell
+wsl --install -d Ubuntu-22.04
+
+# In WSL
+cd /mnt/c/path/to/sandkasten
+task build
+sudo ./bin/sandkasten --config sandkasten.yaml
+```
+
+**Important:** Store data inside WSL's filesystem (not `/mnt/c`):
+```yaml
+data_dir: "/var/lib/sandkasten"  # Correct - uses ext4
+# data_dir: "/mnt/c/sandkasten"  # Wrong - NTFS doesn't support overlayfs
+```
 
 ## SDKs
 
@@ -259,8 +277,6 @@ session = await client.create_session()
 result = await session.exec("echo hello")
 ```
 
-[Python SDK Docs](./sdk/python/README.md)
-
 ### TypeScript
 
 ```bash
@@ -275,37 +291,72 @@ const session = await client.createSession();
 const result = await session.exec('echo hello');
 ```
 
-[TypeScript SDK Docs](./sdk/README.md)
-
-## Examples
-
-See [quickstart/agent/](./quickstart/agent/) for complete examples:
-
-- **enhanced_agent.py** - Full-featured with Rich UI, streaming, history
-- **coding_agent.py** - Simple task-based agent
-- **interactive_agent.py** - Interactive REPL
-
 ## Security
 
 Sandboxes are isolated with:
-- ✅ Read-only root filesystem
-- ✅ No capabilities (CAP_DROP=ALL)
-- ✅ PID/CPU/memory limits
-- ✅ No new privileges
-- ✅ Optional network isolation
+- ✅ Mount/PID/UTS/IPC namespaces
+- ✅ Optional network namespace (no network by default)
+- ✅ cgroups v2 resource limits
+- ✅ All capabilities dropped
+- ✅ no_new_privs flag
+- ✅ Read-only base rootfs (overlayfs lower)
 
 For production:
 - Use strong API keys
 - Bind to localhost (use reverse proxy)
-- Enable network isolation
-- Set resource limits
-- Regular security updates
+- Keep network disabled
+- Set conservative resource limits
+- Run as non-root when possible (requires user namespace setup)
 
-See [Configuration Guide](./docs/configuration.md) for details.
+## Development
 
-## Contributing
+### Build Commands
 
-Contributions welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+```bash
+task build      # Build everything
+task daemon     # Build daemon only
+task runner     # Build runner binary
+task run        # Run daemon locally
+```
+
+### Project Structure
+
+```
+cmd/
+├── sandkasten/      # Daemon entrypoint
+├── runner/          # Runner binary (PID 1 in sandbox)
+└── imgbuilder/      # Image management tool
+
+internal/
+├── api/             # HTTP handlers
+├── session/         # Session orchestration
+├── runtime/
+│   ├── driver.go    # Runtime interface
+│   └── linux/       # Linux implementation
+├── store/           # SQLite persistence
+├── reaper/          # TTL cleanup
+├── config/          # Configuration
+└── web/             # Dashboard
+
+protocol/            # Runner ↔ Daemon protocol
+```
+
+## API Reference
+
+See [API Documentation](./docs/api.md) for complete reference.
+
+Quick reference:
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /v1/sessions` | Create session |
+| `GET /v1/sessions` | List sessions |
+| `GET /v1/sessions/{id}` | Get session |
+| `POST /v1/sessions/{id}/exec` | Execute command |
+| `POST /v1/sessions/{id}/fs/write` | Write file |
+| `GET /v1/sessions/{id}/fs/read` | Read file |
+| `DELETE /v1/sessions/{id}` | Destroy session |
+| `GET /v1/workspaces` | List workspaces |
 
 ## License
 
@@ -313,14 +364,7 @@ MIT - See [LICENSE](./LICENSE) for details.
 
 ## Credits
 
-Built with ❤️ using:
-- [Docker Engine API](https://docs.docker.com/engine/api/)
+Built with:
+- Linux namespaces, cgroups, and overlayfs
 - [creack/pty](https://github.com/creack/pty) for PTY management
 - [modernc.org/sqlite](https://modernc.org/sqlite) for pure-Go SQLite
-
-## Links
-
-- **Documentation**: [docs/](./docs/)
-- **Examples**: [quickstart/agent/](./quickstart/agent/)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/sandkasten/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/sandkasten/discussions)

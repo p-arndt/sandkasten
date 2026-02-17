@@ -8,20 +8,32 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/p-arndt/sandkasten/internal/api"
 	"github.com/p-arndt/sandkasten/internal/config"
-	"github.com/p-arndt/sandkasten/internal/docker"
-	"github.com/p-arndt/sandkasten/internal/pool"
 	"github.com/p-arndt/sandkasten/internal/reaper"
+	"github.com/p-arndt/sandkasten/internal/runtime/linux"
 	"github.com/p-arndt/sandkasten/internal/session"
 	"github.com/p-arndt/sandkasten/internal/store"
-	"github.com/p-arndt/sandkasten/internal/workspace"
 )
 
 func main() {
+	if runtime.GOOS != "linux" {
+		fmt.Fprintf(os.Stderr, "Error: sandkasten daemon requires Linux (or WSL2)\n")
+		os.Exit(1)
+	}
+
+	if isNsinit() {
+		if err := runNsinit(); err != nil {
+			fmt.Fprintf(os.Stderr, "nsinit error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	cfgPath := flag.String("config", "", "path to sandkasten.yaml")
 	flag.Parse()
 
@@ -44,58 +56,38 @@ func main() {
 	}
 	defer st.Close()
 
-	dc, err := docker.New()
+	rt, err := linux.NewDriver(cfg)
 	if err != nil {
-		logger.Error("docker client", "error", err)
+		logger.Error("runtime driver", "error", err)
 		os.Exit(1)
 	}
-	defer dc.Close()
+	defer rt.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := dc.Ping(ctx); err != nil {
-		logger.Error("docker ping failed — is Docker running?", "error", err)
+	if err := rt.Ping(ctx); err != nil {
+		logger.Error("runtime ping failed", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("docker connection OK")
+	logger.Info("runtime driver OK")
 
-	// Initialize workspace manager
-	wm := workspace.NewManager(dc.DockerClient())
+	mgr := session.NewManager(cfg, st, rt, nil)
 
-	// Initialize pool manager
-	poolMgr := pool.New(cfg, dc, logger)
-
-	// Start pool if enabled
-	if cfg.Pool.Enabled && len(cfg.Pool.Images) > 0 {
-		poolConfigs := make([]pool.PoolConfig, 0, len(cfg.Pool.Images))
-		for image, size := range cfg.Pool.Images {
-			poolConfigs = append(poolConfigs, pool.PoolConfig{
-				Image: image,
-				Size:  size,
-			})
-		}
-		poolMgr.Start(ctx, poolConfigs)
-		logger.Info("container pool started", "images", cfg.Pool.Images)
-	}
-
-	mgr := session.NewManager(cfg, st, dc, poolMgr, wm)
-
-	rpr := reaper.New(st, dc, 30*time.Second, logger)
+	rpr := reaper.New(st, rt, 30*time.Second, logger)
 	rpr.SetSessionManager(mgr)
 	go rpr.Run(ctx)
 
-	srv := api.NewServer(cfg, mgr, st, poolMgr, *cfgPath, logger)
+	srv := api.NewServer(cfg, mgr, st, *cfgPath, logger)
 
 	httpServer := &http.Server{
 		Addr:         cfg.Listen,
 		Handler:      srv.Handler(),
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 5 * time.Minute, // exec can be long
+		WriteTimeout: 5 * time.Minute,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Graceful shutdown.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 
@@ -104,20 +96,15 @@ func main() {
 		logger.Info("shutting down...")
 		cancel()
 
-		// Stop pool
-		if cfg.Pool.Enabled {
-			poolMgr.Stop(ctx)
-		}
-
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 		httpServer.Shutdown(shutdownCtx)
 	}()
 
 	logger.Info("listening", "addr", cfg.Listen)
-	fmt.Fprintf(os.Stderr, "\n  🏖️  sandkasten daemon ready\n")
-	fmt.Fprintf(os.Stderr, "  📊 Dashboard: http://%s\n", cfg.Listen)
-	fmt.Fprintf(os.Stderr, "  🔧 API:       http://%s/v1\n\n", cfg.Listen)
+	fmt.Fprintf(os.Stderr, "\n  sandkasten daemon ready\n")
+	fmt.Fprintf(os.Stderr, "  Dashboard: http://%s\n", cfg.Listen)
+	fmt.Fprintf(os.Stderr, "  API:       http://%s/v1\n\n", cfg.Listen)
 
 	if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
 		logger.Error("server error", "error", err)

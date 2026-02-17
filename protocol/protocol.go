@@ -42,8 +42,8 @@ type Response struct {
 	DurationMs int64  `json:"duration_ms,omitempty"`
 
 	// Streaming exec fields (for exec_chunk)
-	Chunk     string `json:"chunk,omitempty"`      // output chunk
-	Timestamp int64  `json:"timestamp,omitempty"`  // unix timestamp ms
+	Chunk     string `json:"chunk,omitempty"`     // output chunk
+	Timestamp int64  `json:"timestamp,omitempty"` // unix timestamp ms
 
 	// Write response fields
 	OK bool `json:"ok,omitempty"`
@@ -58,13 +58,13 @@ type Response struct {
 type ResponseType string
 
 const (
-	ResponseExec       ResponseType = "exec"
-	ResponseExecChunk  ResponseType = "exec_chunk"  // streaming output chunk
-	ResponseExecDone   ResponseType = "exec_done"   // streaming complete
-	ResponseWrite      ResponseType = "write"
-	ResponseRead       ResponseType = "read"
-	ResponseError      ResponseType = "error"
-	ResponseReady      ResponseType = "ready"
+	ResponseExec      ResponseType = "exec"
+	ResponseExecChunk ResponseType = "exec_chunk" // streaming output chunk
+	ResponseExecDone  ResponseType = "exec_done"  // streaming complete
+	ResponseWrite     ResponseType = "write"
+	ResponseRead      ResponseType = "read"
+	ResponseError     ResponseType = "error"
+	ResponseReady     ResponseType = "ready"
 )
 
 // ReadyMessage is emitted by the runner on startup.
@@ -78,8 +78,38 @@ const MaxOutputBytes = 5 * 1024 * 1024 // 5 MB
 // DefaultMaxReadBytes is the default cap on file reads.
 const DefaultMaxReadBytes = 10 * 1024 * 1024 // 10 MB
 
-// WorkspaceVolumePrefix is the prefix for workspace volume names.
-const WorkspaceVolumePrefix = "sandkasten-ws-"
+const DataDirPrefix = "/var/lib/sandkasten/"
+const SessionDirPrefix = DataDirPrefix + "sessions/"
+const ImageDirPrefix = DataDirPrefix + "images/"
+const WorkspaceDirPrefix = DataDirPrefix + "workspaces/"
+const RunnerSocketName = "runner.sock"
+const RunDirName = "run"
+
+const WorkspaceVolumePrefix = "sandkasten-ws-" // legacy Docker volume prefix
+
+func RunnerSocketPath(sessionID string) string {
+	return SessionDirPrefix + sessionID + "/" + RunDirName + "/" + RunnerSocketName
+}
+
+func SessionDir(sessionID string) string {
+	return SessionDirPrefix + sessionID
+}
+
+func ImageRootfsPath(image string) string {
+	return ImageDirPrefix + image + "/rootfs"
+}
+
+func WorkspacePath(workspaceID string) string {
+	return WorkspaceDirPrefix + workspaceID
+}
+
+type SessionState struct {
+	SessionID  string `json:"session_id"`
+	InitPID    int    `json:"init_pid"`
+	CgroupPath string `json:"cgroup_path"`
+	Mnt        string `json:"mnt"`
+	RunnerSock string `json:"runner_sock"`
+}
 
 // SentinelBegin is the marker written before a command.
 const SentinelBegin = "__SANDKASTEN_BEGIN__"

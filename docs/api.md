@@ -25,9 +25,9 @@ POST /v1/sessions
 **Request:**
 ```json
 {
-  "image": "sandbox-runtime:python",
+  "image": "python",
   "ttl_seconds": 3600,
-  "workspace_id": "user123-project"  // optional
+  "workspace_id": "user123-project"
 }
 ```
 
@@ -35,7 +35,7 @@ POST /v1/sessions
 ```json
 {
   "id": "abc123def456",
-  "image": "sandbox-runtime:python",
+  "image": "python",
   "status": "running",
   "cwd": "/workspace",
   "workspace_id": "user123-project",
@@ -63,7 +63,7 @@ GET /v1/sessions
 [
   {
     "id": "abc123",
-    "image": "sandbox-runtime:python",
+    "image": "python",
     "status": "running",
     ...
   }
@@ -280,7 +280,7 @@ BASE_URL="http://localhost:8080"
 # Create session
 SESSION=$(curl -s -X POST $BASE_URL/v1/sessions \
   -H "Authorization: Bearer $API_KEY" \
-  -d '{"image":"sandbox-runtime:python"}' | jq -r .id)
+  -d '{"image":"python"}' | jq -r .id)
 
 # Execute
 curl -X POST $BASE_URL/v1/sessions/$SESSION/exec \

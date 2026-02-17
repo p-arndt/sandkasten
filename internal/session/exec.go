@@ -25,7 +25,7 @@ func (m *Manager) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int
 
 	execID := uuid.New().String()[:8]
 
-	resp, err := m.docker.ExecRunner(ctx, sess.ContainerID, protocol.Request{
+	resp, err := m.runtime.Exec(ctx, sess.ID, protocol.Request{
 		ID:        execID,
 		Type:      protocol.RequestExec,
 		Cmd:       cmd,
@@ -39,7 +39,6 @@ func (m *Manager) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int
 		return nil, fmt.Errorf("runner error: %s", resp.Error)
 	}
 
-	// Update session activity and extend lease
 	cwd := m.resolveCwd(resp.Cwd, sess.Cwd)
 	m.extendSessionLease(sessionID, cwd)
 
@@ -68,9 +67,7 @@ func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeout
 	execID := uuid.New().String()[:8]
 	startTime := time.Now()
 
-	// For now, use blocking exec and send as single chunk
-	// TODO: Implement true streaming at runner level
-	resp, err := m.docker.ExecRunner(ctx, sess.ContainerID, protocol.Request{
+	resp, err := m.runtime.Exec(ctx, sess.ID, protocol.Request{
 		ID:        execID,
 		Type:      protocol.RequestExec,
 		Cmd:       cmd,
@@ -84,7 +81,6 @@ func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeout
 		return fmt.Errorf("runner error: %s", resp.Error)
 	}
 
-	// Update session activity and extend lease
 	cwd := m.resolveCwd(resp.Cwd, sess.Cwd)
 	m.extendSessionLease(sessionID, cwd)
 

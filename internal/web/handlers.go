@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/p-arndt/sandkasten/internal/config"
-	"github.com/p-arndt/sandkasten/internal/pool"
 	"github.com/p-arndt/sandkasten/internal/store"
 
 	"gopkg.in/yaml.v3"
@@ -23,24 +22,20 @@ var distFS embed.FS
 
 type Handler struct {
 	store                *store.Store
-	pool                 *pool.Pool
 	configPath           string
 	playgroundConfigPath string
 	startTime            time.Time
 	distFS               fs.FS
 }
 
-func NewHandler(store *store.Store, poolMgr *pool.Pool, configPath, playgroundConfigPath string) *Handler {
-	// Extract the dist subdirectory from the embed.FS
+func NewHandler(store *store.Store, configPath, playgroundConfigPath string) *Handler {
 	distSubFS, err := fs.Sub(distFS, "dist")
 	if err != nil {
-		// Fallback to the root FS if dist doesn't exist yet
 		distSubFS = distFS
 	}
 
 	return &Handler{
 		store:                store,
-		pool:                 poolMgr,
 		configPath:           configPath,
 		playgroundConfigPath: playgroundConfigPath,
 		startTime:            time.Now(),
@@ -114,14 +109,6 @@ func (h *Handler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"expired_sessions": expired,
 		"sessions":         sessions,
 		"uptime_seconds":   int(time.Since(h.startTime).Seconds()),
-	}
-
-	// Add pool status if pool is available
-	if h.pool != nil {
-		poolStatus := h.pool.Status()
-		if poolStatus.Enabled || len(poolStatus.Images) > 0 {
-			response["pool"] = poolStatus
-		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -327,13 +314,13 @@ func (h *Handler) PutPlaygroundConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	root["playground"] = map[string]interface{}{
-		"provider":            body.Provider,
-		"model":               body.Model,
-		"openaiApiKey":        body.OpenAIApiKey,
-		"googleApiKey":        body.GoogleApiKey,
-		"googleVertexApiKey":  body.GoogleVertexApiKey,
-		"vertexProject":       body.VertexProject,
-		"vertexLocation":      body.VertexLocation,
+		"provider":           body.Provider,
+		"model":              body.Model,
+		"openaiApiKey":       body.OpenAIApiKey,
+		"googleApiKey":       body.GoogleApiKey,
+		"googleVertexApiKey": body.GoogleVertexApiKey,
+		"vertexProject":      body.VertexProject,
+		"vertexLocation":     body.VertexLocation,
 	}
 
 	data, err := json.MarshalIndent(root, "", "  ")

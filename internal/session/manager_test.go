@@ -9,8 +9,9 @@ import (
 
 func testConfig() *config.Config {
 	return &config.Config{
-		DefaultImage:      "sandbox-runtime:base",
-		AllowedImages:     []string{"sandbox-runtime:base", "sandbox-runtime:python"},
+		DataDir:           "/tmp/sandkasten-test",
+		DefaultImage:      "base",
+		AllowedImages:     []string{"base", "python"},
 		SessionTTLSeconds: 300,
 		Defaults: config.Defaults{
 			MaxExecTimeoutMs: 120000,
@@ -18,42 +19,40 @@ func testConfig() *config.Config {
 	}
 }
 
-func newTestManager() (*Manager, *MockDockerClient, *MockSessionStore, *MockContainerPool, *MockWorkspaceManager) {
-	dc := &MockDockerClient{}
+func newTestManager() (*Manager, *MockRuntimeDriver, *MockSessionStore) {
+	rt := &MockRuntimeDriver{}
 	st := &MockSessionStore{}
-	pool := &MockContainerPool{}
-	ws := &MockWorkspaceManager{}
 	cfg := testConfig()
-	mgr := NewManager(cfg, st, dc, pool, ws)
-	return mgr, dc, st, pool, ws
+	mgr := NewManager(cfg, st, rt, nil)
+	return mgr, rt, st
 }
 
 func TestIsImageAllowed(t *testing.T) {
-	mgr, _, _, _, _ := newTestManager()
+	mgr, _, _ := newTestManager()
 
-	assert.True(t, mgr.isImageAllowed("sandbox-runtime:base"))
-	assert.True(t, mgr.isImageAllowed("sandbox-runtime:python"))
-	assert.False(t, mgr.isImageAllowed("sandbox-runtime:node"))
+	assert.True(t, mgr.isImageAllowed("base"))
+	assert.True(t, mgr.isImageAllowed("python"))
+	assert.False(t, mgr.isImageAllowed("node"))
 	assert.False(t, mgr.isImageAllowed("evil-image"))
 }
 
 func TestIsImageAllowedNoRestrictions(t *testing.T) {
-	mgr, _, _, _, _ := newTestManager()
+	mgr, _, _ := newTestManager()
 	mgr.cfg.AllowedImages = nil
 
 	assert.True(t, mgr.isImageAllowed("anything"))
-	assert.True(t, mgr.isImageAllowed("sandbox-runtime:base"))
+	assert.True(t, mgr.isImageAllowed("base"))
 }
 
 func TestResolveImage(t *testing.T) {
-	mgr, _, _, _, _ := newTestManager()
+	mgr, _, _ := newTestManager()
 
-	assert.Equal(t, "sandbox-runtime:base", mgr.resolveImage(""))
-	assert.Equal(t, "sandbox-runtime:python", mgr.resolveImage("sandbox-runtime:python"))
+	assert.Equal(t, "base", mgr.resolveImage(""))
+	assert.Equal(t, "python", mgr.resolveImage("python"))
 }
 
 func TestResolveTTL(t *testing.T) {
-	mgr, _, _, _, _ := newTestManager()
+	mgr, _, _ := newTestManager()
 
 	assert.Equal(t, 300, mgr.resolveTTL(0))
 	assert.Equal(t, 300, mgr.resolveTTL(-1))
@@ -61,7 +60,7 @@ func TestResolveTTL(t *testing.T) {
 }
 
 func TestEnforceMaxTimeout(t *testing.T) {
-	mgr, _, _, _, _ := newTestManager()
+	mgr, _, _ := newTestManager()
 
 	assert.Equal(t, 120000, mgr.enforceMaxTimeout(0))
 	assert.Equal(t, 120000, mgr.enforceMaxTimeout(-1))
@@ -70,20 +69,18 @@ func TestEnforceMaxTimeout(t *testing.T) {
 }
 
 func TestSessionLock(t *testing.T) {
-	mgr, _, _, _, _ := newTestManager()
+	mgr, _, _ := newTestManager()
 
 	mu1 := mgr.sessionLock("sess-1")
 	mu2 := mgr.sessionLock("sess-1")
 	mu3 := mgr.sessionLock("sess-2")
 
-	// Same session returns same mutex
 	assert.Same(t, mu1, mu2)
-	// Different session returns different mutex
 	assert.NotSame(t, mu1, mu3)
 }
 
 func TestCleanupSessionLock(t *testing.T) {
-	mgr, _, _, _, _ := newTestManager()
+	mgr, _, _ := newTestManager()
 
 	_ = mgr.sessionLock("sess-1")
 	assert.Len(t, mgr.locks, 1)
@@ -91,12 +88,11 @@ func TestCleanupSessionLock(t *testing.T) {
 	mgr.CleanupSessionLock("sess-1")
 	assert.Len(t, mgr.locks, 0)
 
-	// Cleaning up non-existent lock should not panic
 	mgr.CleanupSessionLock("nonexistent")
 }
 
 func TestResolveCwd(t *testing.T) {
-	mgr, _, _, _, _ := newTestManager()
+	mgr, _, _ := newTestManager()
 
 	assert.Equal(t, "/home", mgr.resolveCwd("/home", "/workspace"))
 	assert.Equal(t, "/workspace", mgr.resolveCwd("", "/workspace"))

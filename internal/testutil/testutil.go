@@ -13,8 +13,9 @@ func TestConfig() *config.Config {
 	return &config.Config{
 		Listen:            "127.0.0.1:0",
 		APIKey:            "test-api-key",
-		DefaultImage:      "sandbox-runtime:base",
-		AllowedImages:     []string{"sandbox-runtime:base", "sandbox-runtime:python", "sandbox-runtime:node"},
+		DataDir:           "/tmp/sandkasten-test",
+		DefaultImage:      "base",
+		AllowedImages:     []string{"base", "python", "node"},
 		DBPath:            ":memory:",
 		SessionTTLSeconds: 300,
 		Defaults: config.Defaults{
@@ -36,13 +37,13 @@ func TestConfig() *config.Config {
 	}
 }
 
-// TestSession returns a store.Session with sensible test defaults.
 func TestSession(id string) *store.Session {
 	now := time.Now().UTC()
 	return &store.Session{
 		ID:           id,
-		Image:        "sandbox-runtime:base",
-		ContainerID:  "container-" + id,
+		Image:        "base",
+		InitPID:      12345,
+		CgroupPath:   "/sys/fs/cgroup/sandkasten/" + id,
 		Status:       "running",
 		Cwd:          "/workspace",
 		CreatedAt:    now,

@@ -20,8 +20,9 @@ func testSession(id string) *Session {
 	now := time.Now().UTC()
 	return &Session{
 		ID:           id,
-		Image:        "sandbox-runtime:base",
-		ContainerID:  "container-" + id,
+		Image:        "base",
+		InitPID:      12345,
+		CgroupPath:   "/sys/fs/cgroup/sandkasten/" + id,
 		Status:       "running",
 		Cwd:          "/workspace",
 		CreatedAt:    now,
@@ -42,7 +43,8 @@ func TestCreateAndGetSession(t *testing.T) {
 
 	assert.Equal(t, sess.ID, got.ID)
 	assert.Equal(t, sess.Image, got.Image)
-	assert.Equal(t, sess.ContainerID, got.ContainerID)
+	assert.Equal(t, sess.InitPID, got.InitPID)
+	assert.Equal(t, sess.CgroupPath, got.CgroupPath)
 	assert.Equal(t, sess.Status, got.Status)
 	assert.Equal(t, sess.Cwd, got.Cwd)
 }

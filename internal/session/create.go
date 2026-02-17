@@ -6,9 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/p-arndt/sandkasten/internal/docker"
+	"github.com/p-arndt/sandkasten/internal/runtime"
 	storemod "github.com/p-arndt/sandkasten/internal/store"
-	"github.com/p-arndt/sandkasten/protocol"
 )
 
 func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, error) {
@@ -20,27 +19,28 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 	ttl := m.resolveTTL(opts.TTLSeconds)
 	workspaceID := opts.WorkspaceID
 
-	// Create persistent workspace if requested
 	if err := m.ensureWorkspace(ctx, workspaceID); err != nil {
 		return nil, err
 	}
 
-	// Generate session ID and timestamps
 	sessionID := uuid.New().String()[:12]
 	now := time.Now().UTC()
 	expiresAt := now.Add(time.Duration(ttl) * time.Second)
 
-	// Create or acquire container
-	containerID, fromPool, err := m.acquireContainer(ctx, sessionID, image, workspaceID)
+	info, err := m.runtime.Create(ctx, runtime.CreateOpts{
+		SessionID:   sessionID,
+		Image:       image,
+		WorkspaceID: workspaceID,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create sandbox: %w", err)
 	}
 
-	// Persist session to store
 	sess := &storemod.Session{
 		ID:           sessionID,
 		Image:        image,
-		ContainerID:  containerID,
+		InitPID:      info.InitPID,
+		CgroupPath:   info.CgroupPath,
 		Status:       "running",
 		Cwd:          "/workspace",
 		WorkspaceID:  workspaceID,
@@ -50,13 +50,8 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 	}
 
 	if err := m.store.CreateSession(sess); err != nil {
-		m.docker.RemoveContainer(ctx, containerID, sessionID)
+		_ = m.runtime.Destroy(ctx, sessionID)
 		return nil, fmt.Errorf("store session: %w", err)
-	}
-
-	// Wait for runner to be ready (skip if from pool)
-	if !fromPool {
-		time.Sleep(500 * time.Millisecond)
 	}
 
 	return &SessionInfo{
@@ -70,7 +65,6 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 	}, nil
 }
 
-// resolveImage returns the image to use, applying default if needed.
 func (m *Manager) resolveImage(image string) string {
 	if image == "" {
 		return m.cfg.DefaultImage
@@ -78,7 +72,6 @@ func (m *Manager) resolveImage(image string) string {
 	return image
 }
 
-// resolveTTL returns the TTL to use, applying default if needed.
 func (m *Manager) resolveTTL(ttl int) int {
 	if ttl <= 0 {
 		return m.cfg.SessionTTLSeconds
@@ -86,20 +79,22 @@ func (m *Manager) resolveTTL(ttl int) int {
 	return ttl
 }
 
-// ensureWorkspace creates a persistent workspace if needed.
 func (m *Manager) ensureWorkspace(ctx context.Context, workspaceID string) error {
 	if workspaceID == "" || !m.cfg.Workspace.Enabled {
 		return nil
 	}
 
-	volumeName := protocol.WorkspaceVolumePrefix + workspaceID
-	exists, err := m.workspace.Exists(ctx, volumeName)
+	if m.workspace == nil {
+		return nil
+	}
+
+	exists, err := m.workspace.Exists(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("check workspace: %w", err)
 	}
 
 	if !exists {
-		if err := m.workspace.Create(ctx, volumeName, map[string]string{
+		if err := m.workspace.Create(ctx, workspaceID, map[string]string{
 			"sandkasten.workspace_id": workspaceID,
 		}); err != nil {
 			return fmt.Errorf("create workspace: %w", err)
@@ -107,28 +102,4 @@ func (m *Manager) ensureWorkspace(ctx context.Context, workspaceID string) error
 	}
 
 	return nil
-}
-
-// acquireContainer gets a container from pool or creates a new one.
-func (m *Manager) acquireContainer(ctx context.Context, sessionID, image, workspaceID string) (containerID string, fromPool bool, err error) {
-	// Try to get from pool first
-	if m.pool != nil {
-		containerID, fromPool = m.pool.Get(ctx, image)
-		if fromPool {
-			return containerID, true, nil
-		}
-	}
-
-	// Create new container
-	containerID, err = m.docker.CreateContainer(ctx, docker.CreateOpts{
-		SessionID:   sessionID,
-		Image:       image,
-		Defaults:    m.cfg.Defaults,
-		WorkspaceID: workspaceID,
-	})
-	if err != nil {
-		return "", false, fmt.Errorf("create container: %w", err)
-	}
-
-	return containerID, false, nil
 }

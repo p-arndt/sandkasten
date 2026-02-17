@@ -17,8 +17,9 @@ func runningSession(id string) *store.Session {
 	now := time.Now().UTC()
 	return &store.Session{
 		ID:           id,
-		Image:        "sandbox-runtime:base",
-		ContainerID:  "container-" + id,
+		Image:        "base",
+		InitPID:      12345,
+		CgroupPath:   "/sys/fs/cgroup/sandkasten/" + id,
 		Status:       "running",
 		Cwd:          "/workspace",
 		CreatedAt:    now,
@@ -28,11 +29,11 @@ func runningSession(id string) *store.Session {
 }
 
 func TestExecSuccess(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+	mgr, rt, st := newTestManager()
 	sess := runningSession("s1")
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("ExecRunner", mock.Anything, sess.ContainerID, mock.AnythingOfType("protocol.Request")).Return(&protocol.Response{
+	rt.On("Exec", mock.Anything, "s1", mock.AnythingOfType("protocol.Request")).Return(&protocol.Response{
 		Type:       protocol.ResponseExec,
 		ExitCode:   0,
 		Cwd:        "/workspace",
@@ -51,7 +52,7 @@ func TestExecSuccess(t *testing.T) {
 }
 
 func TestExecNotFound(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 
 	st.On("GetSession", "nonexistent").Return(nil, nil)
 
@@ -60,7 +61,7 @@ func TestExecNotFound(t *testing.T) {
 }
 
 func TestExecExpired(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 	sess := runningSession("expired")
 	sess.ExpiresAt = time.Now().UTC().Add(-1 * time.Minute)
 
@@ -71,7 +72,7 @@ func TestExecExpired(t *testing.T) {
 }
 
 func TestExecNotRunning(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 	sess := runningSession("stopped")
 	sess.Status = "destroyed"
 
@@ -82,11 +83,11 @@ func TestExecNotRunning(t *testing.T) {
 }
 
 func TestExecRunnerError(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+	mgr, rt, st := newTestManager()
 	sess := runningSession("s1")
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("ExecRunner", mock.Anything, sess.ContainerID, mock.Anything).Return(&protocol.Response{
+	rt.On("Exec", mock.Anything, "s1", mock.Anything).Return(&protocol.Response{
 		Type:  protocol.ResponseError,
 		Error: "command not found",
 	}, nil)
@@ -96,12 +97,12 @@ func TestExecRunnerError(t *testing.T) {
 	assert.Contains(t, err.Error(), "runner error")
 }
 
-func TestExecDockerFailure(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+func TestExecRuntimeFailure(t *testing.T) {
+	mgr, rt, st := newTestManager()
 	sess := runningSession("s1")
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("ExecRunner", mock.Anything, sess.ContainerID, mock.Anything).Return(nil, fmt.Errorf("docker exec failed"))
+	rt.On("Exec", mock.Anything, "s1", mock.Anything).Return(nil, fmt.Errorf("runtime exec failed"))
 
 	_, err := mgr.Exec(context.Background(), "s1", "ls", 0)
 	assert.Error(t, err)
@@ -109,11 +110,11 @@ func TestExecDockerFailure(t *testing.T) {
 }
 
 func TestExecStreamSuccess(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+	mgr, rt, st := newTestManager()
 	sess := runningSession("s1")
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("ExecRunner", mock.Anything, sess.ContainerID, mock.Anything).Return(&protocol.Response{
+	rt.On("Exec", mock.Anything, "s1", mock.Anything).Return(&protocol.Response{
 		Type:       protocol.ResponseExec,
 		ExitCode:   0,
 		Cwd:        "/workspace",
@@ -133,12 +134,11 @@ func TestExecStreamSuccess(t *testing.T) {
 }
 
 func TestExecTimeoutEnforcement(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+	mgr, rt, st := newTestManager()
 	sess := runningSession("s1")
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("ExecRunner", mock.Anything, sess.ContainerID, mock.MatchedBy(func(req protocol.Request) bool {
-		// Timeout should be capped to max (120000)
+	rt.On("Exec", mock.Anything, "s1", mock.MatchedBy(func(req protocol.Request) bool {
 		return req.TimeoutMs == 120000
 	})).Return(&protocol.Response{
 		Type:     protocol.ResponseExec,

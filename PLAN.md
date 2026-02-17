@@ -1,143 +1,161 @@
-# Sandkasten — Implementation Plan (Phase 1 MVP)
+# Sandkasten v2 (No Docker Runtime) — Architecture + Implementation Plan
 
-## Scope
-
-Stripped multi-tenancy. Single API key auth. Focus: working stateful sandbox
-runtime that an agent platform can integrate via TS SDK or raw HTTP.
+Goal: a **stateful, “VM-like” sandbox** for agents (persistent shell + filesystem) that **scales** (no Docker volumes), runs on Linux and **Windows via WSL2**, and is simple to operate.
 
 ---
 
-## Project Structure
+## 0) High-level concept
+
+Replace “container per session” with **“process sandbox per session”**:
+
+* **Base rootfs** (shared, read-only) per image (base/python/node)
+* **Session layer** via **overlayfs** (upper/work dirs per session)
+* **Workspace dir** bind-mounted into `/workspace` (optional persistence)
+* Isolation via Linux primitives:
+
+  * mount/pid/uts/ipc/user namespaces (+ optional netns)
+  * cgroups v2 (cpu/mem/pids)
+  * no_new_privs + drop caps + seccomp (MVP: minimal)
+* Persistent shell maintained by the **runner** (PID 1 in the sandbox)
+
+Windows support: run daemon in **WSL2** (WSL2 uses cgroup v2 now, which is good). ([Stack Overflow][1])
+
+---
+
+## 1) Scope / Non-goals (MVP)
+
+### MVP includes
+
+* Single-tenant API key auth
+* Stateful sessions: `exec`, `read`, `write`
+* Image store: base/python/node rootfs
+* Overlay-backed session rootfs
+* Workspace bind-mount
+* TTL reaper + reconciliation
+* TS SDK unchanged (same HTTP contract)
+
+### Deferred
+
+* Multi-tenant policies, per-tenant quotas
+* Streaming exec output (SSE)
+* Network egress proxy / allowlisting
+* Snapshot/restore (optional Phase 2)
+* Strong isolation via microVMs (optional driver later)
+
+---
+
+## 2) Directory layout (host)
+
+All paths must live on a Linux filesystem that supports overlayfs/xattrs.
+**On WSL2: keep data inside the Linux distro (ext4), not `/mnt/c` (NTFS), or overlay will bite you**. ([Stack Overflow][2])
+
+```
+/var/lib/sandkasten/
+  images/
+    <imageNameOrHash>/
+      rootfs/                 # unpacked rootfs (read-only)
+      meta.json
+  sessions/
+    <sessionId>/
+      upper/                  # overlay upper
+      work/                   # overlay workdir
+      mnt/                    # overlay mountpoint (temporary)
+      run/                    # bind-mounted into sandbox at /run/sandkasten
+        runner.sock           # unix socket created by runner
+      state.json              # cached runtime state (init pid, cgroup path, etc.)
+  workspaces/
+    <workspaceId>/
+      ... user files ...
+/run/sandkasten/
+  daemon.sock (optional)
+```
+
+---
+
+## 3) Components
+
+### 3.1 Daemon (HTTP API + orchestration)
+
+* Validates API key
+* Creates sessions, tracks in SQLite
+* Calls runtime driver to create/exec/destroy sessions
+* Maintains per-session mutex for serialized shell exec
+* TTL reaper + reconciliation on boot
+
+### 3.2 Runtime Driver (Linux sandbox runtime)
+
+Responsible for:
+
+* Mount overlay rootfs
+* Create namespaces + cgroups
+* Pivot into new root
+* Start runner as PID 1
+* Provide daemon ↔ runner unix socket path
+* Destroy session (kill cgroup, unmount, cleanup)
+
+### 3.3 Runner (inside sandbox)
+
+* PID 1 inside sandbox
+* Creates PTY + starts `bash -l` (fallback `sh`)
+* Listens on `/run/sandkasten/runner.sock` (host-visible via bind mount)
+* Implements your JSON protocol (`exec`, `read`, `write`) with sentinel markers
+
+### 3.4 Image Tooling
+
+* Build rootfs tarballs for images (base/python/node)
+* Unpack into `/var/lib/sandkasten/images/<image>/rootfs`
+* Store metadata for validation/versioning
+
+---
+
+## 4) Project structure (recommended)
 
 ```
 sandkasten/
 ├── cmd/
-│   ├── sandkasten/        # daemon entrypoint
-│   │   └── main.go
-│   └── runner/            # runner binary (lives inside containers)
-│       └── main.go
+│   ├── sandkasten/              # daemon (linux)
+│   ├── sandkasten-wsl/          # windows helper (optional)
+│   ├── runner/                  # runner binary (linux)
+│   └── imgbuilder/              # image build/import tool (linux)
 ├── internal/
-│   ├── api/               # HTTP handlers + router + middleware
-│   ├── docker/            # Docker Engine API wrapper
-│   ├── store/             # SQLite session store + migrations
-│   ├── session/           # Session manager (orchestration layer)
-│   ├── reaper/            # TTL/GC goroutine
-│   └── config/            # Config loading (env + yaml)
-├── protocol/              # Runner ↔ daemon protocol types (shared)
-├── images/
-│   ├── base/Dockerfile
-│   ├── python/Dockerfile
-│   └── node/Dockerfile
-├── sdk/                   # TypeScript SDK (separate npm package)
-│   └── src/
-├── examples/
-│   └── openai-agents/     # End-user integration example
-└── PLAN.md
+│   ├── api/                     # http handlers
+│   ├── auth/                    # api key middleware
+│   ├── store/                   # sqlite + migrations
+│   ├── session/                 # orchestration + locks
+│   ├── reaper/                  # ttl + reconciliation
+│   ├── runtime/
+│   │   ├── driver.go            # interface (Create/Exec/Destroy/Inspect)
+│   │   ├── linux/               # linux implementation
+│   │   │   ├── create.go
+│   │   │   ├── destroy.go
+│   │   │   ├── exec.go          # connect to runner.sock
+│   │   │   ├── nsinit.go        # stage1 reexec entrypoint
+│   │   │   ├── mount.go         # overlay + bind mounts
+│   │   │   ├── cgroup.go
+│   │   │   ├── seccomp.go       # minimal mvp profile
+│   │   │   └── util.go
+│   ├── images/                  # image store (import/validate)
+│   ├── config/                  # config loading
+│   └── log/                     # logging helpers
+├── protocol/                    # shared JSON types
+├── sdk/                         # ts sdk (unchanged)
+└── images/                      # rootfs recipes / build scripts (optional)
 ```
 
 ---
 
-## Step 1 — Runner binary (`cmd/runner`)
+## 5) Data model (SQLite)
 
-The runner is a small static Go binary that runs as PID 1 inside every
-sandbox container. It is the only thing the daemon talks to.
+Keep your existing `sessions` table, but replace `container_id` with runtime fields:
 
-### What it does
-- Allocates a PTY, starts `bash -l` (fallback `sh`)
-- Reads JSON-line requests from stdin
-- For `exec`: writes command to PTY wrapped in sentinel markers,
-  captures output until end sentinel, returns JSON-line response
-- For `read`/`write`: operates directly on the filesystem
-- Signals readiness on stdout with a `{"ready":true}` line
-
-### Protocol (JSON lines over stdin/stdout)
-
-**Request types:**
-```jsonc
-// exec
-{"id":"abc","type":"exec","cmd":"ls -la","timeout_ms":30000}
-// write
-{"id":"def","type":"write","path":"/workspace/foo.py","content_base64":"..."}
-// read
-{"id":"ghi","type":"read","path":"/workspace/foo.py","max_bytes":1048576}
-```
-
-**Response:**
-```jsonc
-// exec response
-{"id":"abc","type":"exec","exit_code":0,"cwd":"/workspace","output":"...","truncated":false,"duration_ms":42}
-// write response
-{"id":"def","type":"write","ok":true}
-// read response
-{"id":"ghi","type":"read","content_base64":"...","truncated":false}
-// error
-{"id":"xxx","type":"error","message":"timeout exceeded"}
-```
-
-### Sentinel mechanism (exec)
-For each exec request `id`:
-1. Write to PTY: `__SANDKASTEN_BEGIN__:<id>\n`
-2. Write the user command + `\n`
-3. Write: `printf '\n__SANDKASTEN_END__:%s:%d:%s\n' '<id>' "$?" "$PWD"\n`
-4. Read PTY output, buffer between BEGIN and END markers
-5. Parse exit code + cwd from END marker
-
-### Build
-- `CGO_ENABLED=0 GOOS=linux go build -o runner ./cmd/runner`
-- Static binary, copied into images
-
----
-
-## Step 2 — Sandbox base image (`images/base`)
-
-```dockerfile
-FROM ubuntu:24.04
-RUN useradd -m -s /bin/bash sandbox && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    bash coreutils procps ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
-COPY runner /usr/local/bin/runner
-RUN chmod +x /usr/local/bin/runner && mkdir /workspace && chown sandbox:sandbox /workspace
-USER sandbox
-WORKDIR /workspace
-ENTRYPOINT ["/usr/local/bin/runner"]
-```
-
-Python and Node images extend base with their respective runtimes.
-
----
-
-## Step 3 — Daemon core (`cmd/sandkasten` + `internal/`)
-
-### Config (`internal/config`)
-Loaded from env vars + optional `sandkasten.yaml`:
-```yaml
-listen: "127.0.0.1:8080"
-api_key: "sk-sandbox-..."          # single key for MVP
-default_image: "sandbox-runtime:base"
-allowed_images:
-  - "sandbox-runtime:base"
-  - "sandbox-runtime:python"
-  - "sandbox-runtime:node"
-db_path: "./sandkasten.db"
-session_ttl_seconds: 1800
-defaults:
-  cpu_limit: 1.0
-  mem_limit_mb: 512
-  pids_limit: 256
-  max_exec_timeout_ms: 120000
-  network_mode: "none"
-  readonly_rootfs: true
-```
-
-### SQLite store (`internal/store`)
-Single table for MVP:
 ```sql
 CREATE TABLE sessions (
   id            TEXT PRIMARY KEY,
   image         TEXT NOT NULL,
-  container_id  TEXT NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'running', -- running | expired | destroyed
+  workspace_id  TEXT NOT NULL,
+  init_pid      INTEGER NOT NULL,
+  cgroup_path   TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'running',  -- running|expired|destroyed|crashed
   cwd           TEXT NOT NULL DEFAULT '/workspace',
   created_at    TEXT NOT NULL,
   expires_at    TEXT NOT NULL,
@@ -145,210 +163,437 @@ CREATE TABLE sessions (
 );
 ```
 
-### Docker wrapper (`internal/docker`)
-Thin wrapper around `github.com/docker/docker/client`:
-- `CreateContainer(sessionID, image, limits)` — creates + starts container
-  with hardening defaults (read-only rootfs, drop all caps, no-new-privileges,
-  pids/mem/cpu limits, tmpfs /tmp, network none, labels)
-- `ExecRunner(containerID, request) -> response` — runs
-  `docker exec -i <container> /usr/local/bin/runner` and sends one JSON-line
-  request, reads one JSON-line response
-- `RemoveContainer(containerID)` — force remove
-- `ListSandboxContainers()` — list by label for reconciliation
+---
 
-**Key design decision**: each `exec` call does a fresh `docker exec` into the
-runner. The runner process is long-lived (PID 1), but the daemon connects to it
-per-request. This makes the daemon restart-safe — no persistent connections.
+## 6) Runtime Driver details (Linux)
 
-Wait — this conflicts with the "persistent shell" requirement. If runner is
-PID 1 and we docker-exec into it per request, we need the runner to maintain
-the PTY/shell across requests. The approach:
+### 6.1 Preconditions (enforced at startup)
 
-- Runner starts bash PTY on startup and keeps it alive
-- Runner listens on a Unix socket (`/tmp/runner.sock`) inside the container
-- Daemon does `docker exec` to run a tiny **client** that connects to the
-  socket, sends one request, gets one response, exits
-- OR (simpler): runner listens on stdin but we use `docker attach` (messy)
-- OR (simplest for MVP): runner accepts connections on a TCP port inside the
-  container (localhost only, no network exposure since network=none)
+* Running on Linux kernel with:
 
-**Chosen approach for MVP:**
-Runner listens on a Unix socket `/run/runner.sock`. Daemon interaction:
-```
-docker exec -i <container> /usr/local/bin/runner-client <json-request>
-```
-Where `runner-client` is a second tiny binary (or runner itself with a flag:
-`runner --client '{"id":"...","type":"exec",...}'`) that connects to the socket,
-sends the request, reads the response, prints it to stdout.
+  * overlayfs support
+  * cgroups v2 mounted at `/sys/fs/cgroup`
+  * ability to create namespaces and mounts (daemon typically runs as root)
+* On WSL2: ensure data dir is inside distro ext4; WSL2 uses cgroup v2. ([Stack Overflow][1])
 
-This way:
-- Runner (PID 1) owns the persistent bash PTY
-- Each daemon request is a clean docker exec
-- Daemon restarts don't lose shell state
-- No need for persistent connections
+Startup checks:
 
-### Session manager (`internal/session`)
-Orchestration layer:
-- `Create(image) -> Session` — validate image, create container, insert DB row
-- `Exec(sessionID, cmd, timeoutMs) -> ExecResult` — load session, check not
-  expired, acquire per-session mutex, docker exec runner-client, update
-  last_activity + extend lease, return result
-- `Read(sessionID, path, maxBytes) -> bytes`
-- `Write(sessionID, path, content)`
-- `Destroy(sessionID)` — remove container, update DB
-- `Get(sessionID) -> Session`
-- Per-session mutex map to serialize exec calls
+* `statfs(/sys/fs/cgroup)` and detect v2
+* verify overlayfs mount works via a tiny probe
+* ensure mount propagation can be set private
 
-### HTTP API (`internal/api`)
-Router: `net/http` + `chi` (lightweight)
+### 6.2 Filesystem setup (per session)
 
-Middleware:
-- API key check: `Authorization: Bearer <key>` must match configured key
-- Request ID injection
-- Logging
+Given:
 
-Endpoints:
-```
-POST   /v1/sessions                    -> create session
-GET    /v1/sessions/{id}               -> get session info
-POST   /v1/sessions/{id}/exec          -> execute command
-POST   /v1/sessions/{id}/fs/write      -> write file
-GET    /v1/sessions/{id}/fs/read       -> read file
-DELETE /v1/sessions/{id}               -> destroy session
-GET    /v1/sessions                    -> list sessions (admin/debug)
-```
+* `lower = /var/lib/sandkasten/images/<image>/rootfs`
+* `upper = /var/lib/sandkasten/sessions/<id>/upper`
+* `work  = /var/lib/sandkasten/sessions/<id>/work`
+* `mnt   = /var/lib/sandkasten/sessions/<id>/mnt`
+* `runHostDir = /var/lib/sandkasten/sessions/<id>/run`
+* `workspace = /var/lib/sandkasten/workspaces/<workspaceId>`
+
+Steps:
+
+1. `mkdir -p upper work mnt runHostDir workspace`
+2. `mount("overlay", mnt, "overlay", 0, "lowerdir=...,upperdir=...,workdir=...")`
+3. bind-mount workspace into sandbox:
+
+   * create `<mnt>/workspace` if missing
+   * `mount(workspace, <mnt>/workspace, "", MS_BIND|MS_REC, "")`
+4. bind-mount host run dir into sandbox:
+
+   * create `<mnt>/run/sandkasten`
+   * `mount(runHostDir, <mnt>/run/sandkasten, "", MS_BIND, "")`
+5. mount `tmpfs` for `<mnt>/tmp`
+6. minimal `/dev`:
+
+   * create `<mnt>/dev`, mount `tmpfs` there, create needed nodes or bind-mount safe ones (`/dev/null`, `/dev/zero`, `/dev/random`, `/dev/urandom`, `/dev/tty`, `/dev/ptmx`)
+7. do **not** mount host `/sys` into sandbox (keep it out)
+
+### 6.3 Namespace + pivot_root (stage1 “nsinit”)
+
+Go needs a “stage1” path (like runc). Use **reexec**:
+
+* Daemon binary launches itself with env `SANDKASTEN_STAGE=nsinit`
+* `SysProcAttr.Cloneflags` creates namespaces:
+
+  * `CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWIPC`
+  * optional: `CLONE_NEWNET` (MVP can skip, or always create with no interfaces)
+  * optional: `CLONE_NEWUSER` (nice-to-have; often painful—can defer and run rootful inside ns)
+* The nsinit process:
+
+  1. `mount("", "/", "", MS_REC|MS_PRIVATE, "")` (stop propagation)
+  2. `sethostname("sk-"+id)`
+  3. `chdir(mnt)`
+  4. `pivot_root(mnt, mnt+"/.oldroot")`
+  5. `umount2("/.oldroot", MNT_DETACH)` and remove
+  6. mount `proc` at `/proc`
+  7. drop privileges to `sandbox` user (e.g. uid=1000 gid=1000) **after** mounts
+  8. apply hardening:
+
+     * set `PR_SET_NO_NEW_PRIVS`
+     * drop capabilities (bounding set)
+     * apply seccomp filter (MVP: minimal denylist)
+  9. exec `/usr/local/bin/runner`
+
+**Important:** In a new PID namespace, nsinit becomes PID 1 briefly, then execs runner. Runner becomes PID 1.
+
+### 6.4 cgroups v2 (per session)
+
+Create:
+`/sys/fs/cgroup/sandkasten/<id>/`
+
+Set limits (examples):
+
+* `memory.max = <memBytes>`
+* `pids.max = <pids>`
+* `cpu.max = "<quota> <period>"` (e.g. `100000 100000` for 1 CPU)
+
+Attach the sandbox init pid:
+
+* write PID into `cgroup.procs`
+
+On destroy:
+
+* kill processes in cgroup (see below), then remove directory.
+
+### 6.5 Killing / cleanup (reliable destroy)
+
+Destroy steps:
+
+1. mark session status `destroying`
+2. send `SIGTERM` to init pid (host pid)
+3. wait `grace_ms` (e.g. 500ms–2s)
+4. if still alive: `SIGKILL`
+5. additionally ensure cgroup empty:
+
+   * read `cgroup.procs`; SIGKILL any remaining
+6. `umount2(mnt, MNT_DETACH)`
+7. remove `upper/work/mnt/run` dirs
+8. update DB: `destroyed`
+
+### 6.6 Runner socket connectivity
+
+Because `/run/sandkasten` is bind-mounted from host session dir, runner creates:
+`/run/sandkasten/runner.sock`
+
+Daemon connects at host path:
+`/var/lib/sandkasten/sessions/<id>/run/runner.sock`
+
+Exec flow:
+
+* daemon opens unix socket
+* writes one JSON request line
+* reads one JSON response line
+* closes
+
+This keeps daemon restart-safe (no long-lived connections needed).
 
 ---
 
-## Step 4 — Reaper & reconciliation (`internal/reaper`)
+## 7) Runner (inside sandbox) — MVP spec
 
-### Reaper goroutine
-- Ticks every 30s
-- Finds sessions where `expires_at < now` and `status = running`
-- Destroys container, marks session `expired`
+Keep your protocol and sentinel approach.
 
-### Reconciliation (on startup)
-- List all containers with label `sandkasten.session_id`
-- For each: if no matching DB row or DB row is destroyed/expired → remove container
-- For each DB row marked `running`: if no container exists → mark `crashed`
-- Extend lease on activity: each exec/read/write bumps `expires_at`
+### Runner startup
+
+* create unix socket listener at `/run/sandkasten/runner.sock`
+* create PTY
+* spawn `bash -l` (fallback `sh`)
+* keep PTY alive for session lifetime
+
+### Request handling
+
+* accept one connection → read one JSON line → process → write one JSON line → close
+* `exec`: serialize with internal mutex (PTY is shared)
+* `read/write`: operate on filesystem (enforce path under `/workspace`)
+
+### Path safety
+
+* Clean + validate:
+
+  * no `..` traversal
+  * must be inside `/workspace` (realpath check)
+
+### Output limits
+
+* cap output bytes (e.g. 2–8MB) and set `truncated=true`
+
+### Timeouts
+
+* exec timeout: enforce by timer + kill process group in PTY (send ctrl-c then kill if needed)
 
 ---
 
-## Step 5 — TS SDK (`sdk/`)
+## 8) HTTP API (same as your plan)
 
-Minimal, zero-dependency (aside from fetch) TypeScript package.
+Keep endpoints:
 
-```ts
-class SandboxClient {
-  constructor(opts: { baseUrl: string; apiKey: string })
-  createSession(opts?: { image?: string; ttlSeconds?: number }): Promise<Session>
-  getSession(id: string): Promise<Session>
-  listSessions(): Promise<SessionInfo[]>
+```
+POST   /v1/sessions
+GET    /v1/sessions/{id}
+POST   /v1/sessions/{id}/exec
+POST   /v1/sessions/{id}/fs/write
+GET    /v1/sessions/{id}/fs/read
+DELETE /v1/sessions/{id}
+GET    /v1/sessions
+```
+
+Request/response payloads unchanged.
+
+---
+
+## 9) Image format + tooling
+
+### 9.1 What is an “image” now?
+
+An image is a **rootfs directory** with:
+
+* `/usr/local/bin/runner`
+* shell + coreutils + certs
+* optional language runtimes (python/node)
+
+### 9.2 How to build images (two acceptable methods)
+
+**Method A (simple, uses Docker at build time only)**
+
+* Build a container image from Dockerfile
+* Export rootfs:
+
+  * `docker create ...`
+  * `docker export` → tar
+* Import tar into sandkasten image store and unpack
+
+**Method B (pure Linux, no Docker anywhere)**
+
+* Use `debootstrap`/`mmdebstrap` to create rootfs tar
+* `chroot` install packages
+* Copy runner into `/usr/local/bin/runner`
+
+MVP recommendation: Method A first (build-time only). Runtime stays Docker-free.
+
+### 9.3 Image import command (`imgbuilder`)
+
+* `sandkasten-img import --name python --tar python-rootfs.tar`
+* compute hash, unpack to `/var/lib/sandkasten/images/<hash>/rootfs`
+* write `meta.json`:
+
+  * name, hash, created_at
+  * packages/runtime versions (optional)
+  * runner version
+
+---
+
+## 10) Windows / WSL2 packaging
+
+### 10.1 Supported mode
+
+* Daemon runs inside WSL2 distro.
+* TS SDK talks to `http://127.0.0.1:<port>` (from Windows it can access WSL localhost).
+
+WSL2 config is controlled via `wsl.conf` / `.wslconfig`. ([Microsoft Learn][3])
+
+### 10.2 Hard requirement
+
+* Store `/var/lib/sandkasten` inside WSL ext4 (default).
+* Do **not** place it under `/mnt/c/...` due to overlay/xattr constraints. ([Stack Overflow][2])
+
+### 10.3 Optional helper (`sandkasten-wsl.exe`)
+
+* Ensures WSL installed + distro present
+* Copies linux binary into distro or downloads release
+* Starts daemon via `wsl.exe -d <distro> -- sudo sandkasten ...`
+* Shows status + logs
+
+---
+
+## 11) Security posture (MVP vs later)
+
+### MVP hardening (do these)
+
+* `no_new_privs`
+* drop all capabilities
+* readonly base rootfs (overlay lower is ro)
+* tmpfs `/tmp`
+* do not mount host `/sys`
+* pids + memory limits via cgroup v2
+* enforce workspace path constraints
+* default: **no network** (skip netns or create netns with nothing configured)
+
+### Next hardening steps (Phase 2)
+
+* seccomp allowlist (tight)
+* landlock policy for filesystem
+* egress proxy-only networking
+* per-session UID mapping (userns) if you want “rootless in sandbox”
+* optional Firecracker driver for “high risk” sessions
+
+---
+
+## 12) Reaper + reconciliation
+
+### TTL reaper
+
+Every 30s:
+
+* query sessions where `expires_at < now AND status='running'`
+* destroy runtime
+* set status `expired`
+
+### Reconciliation on startup
+
+* scan `/var/lib/sandkasten/sessions/*/state.json`
+* for each:
+
+  * if DB missing or status not running → destroy + cleanup dir
+  * if DB says running but init pid dead → mark `crashed` + cleanup
+
+Store minimal runtime state in `state.json`:
+
+```json
+{
+  "session_id": "...",
+  "init_pid": 12345,
+  "cgroup_path": "/sys/fs/cgroup/sandkasten/<id>",
+  "mnt": "/var/lib/sandkasten/sessions/<id>/mnt",
+  "runner_sock": "/var/lib/sandkasten/sessions/<id>/run/runner.sock"
 }
-
-class Session {
-  readonly id: string
-  exec(cmd: string, opts?: { timeoutMs?: number }): Promise<ExecResult>
-  write(path: string, content: string | Uint8Array): Promise<void>
-  read(path: string, opts?: { maxBytes?: number }): Promise<Uint8Array>
-  destroy(): Promise<void>
-}
-
-interface ExecResult {
-  exitCode: number
-  cwd: string
-  output: string
-  truncated: boolean
-  durationMs: number
-}
 ```
 
 ---
 
-## Step 6 — End-user integration example (`examples/openai-agents/`)
+## 13) Config (suggested)
 
-Shows how someone self-hosting sandkasten wires it into the OpenAI Agents SDK.
+```yaml
+listen: "127.0.0.1:8080"
+api_key: "sk-sandbox-..."
 
-```python
-from agents import Agent, Runner, function_tool
-from sandkasten import SandboxClient  # thin Python wrapper or raw HTTP
+data_dir: "/var/lib/sandkasten"
 
-client = SandboxClient(base_url="http://localhost:8080", api_key="sk-sandbox-...")
+default_image: "python"
+allowed_images: ["base","python","node"]
 
-@function_tool
-async def exec(cmd: str, timeout_ms: int = 30000) -> str:
-    """Execute a shell command in the sandbox. Stateful: cd, env, bg jobs persist."""
-    result = await session.exec(cmd, timeout_ms=timeout_ms)
-    return f"exit={result.exit_code}\ncwd={result.cwd}\n---\n{result.output}"
+session_ttl_seconds: 1800
 
-@function_tool
-async def write_file(path: str, content: str) -> str:
-    """Write content to a file in the sandbox workspace."""
-    await session.write(path, content)
-    return f"wrote {path}"
+limits:
+  cpu_quota: 1.0
+  mem_limit_mb: 512
+  pids_limit: 256
+  max_exec_timeout_ms: 120000
 
-@function_tool
-async def read_file(path: str) -> str:
-    """Read a file from the sandbox workspace."""
-    data = await session.read(path)
-    return data.decode()
+network:
+  mode: "none"   # none | netns (later) | proxy (later)
 
-agent = Agent(
-    name="coding-assistant",
-    instructions="You have a Linux sandbox. Use exec, write_file, read_file.",
-    tools=[exec, write_file, read_file],
-)
-
-async def main():
-    global session
-    session = await client.create_session(image="sandbox-runtime:python")
-    try:
-        result = await Runner.run(agent, "Write a Python script that prints fibonacci numbers and run it")
-        print(result.final_output)
-    finally:
-        await session.destroy()
+security:
+  seccomp: "mvp" # off | mvp | strict (later)
 ```
 
-This pattern works identically for:
-- **Vercel AI SDK** (define tools as `tool()` functions)
-- **LangChain** (define as `@tool` decorated functions)
-- **Claude tool_use** (define in the tools array, call via TS SDK)
+---
 
-The key insight: sandkasten is **agent-framework-agnostic**. The SDK gives you
-`exec/read/write` — you wrap them as tools in whatever framework you use.
+## 14) Implementation order (agent-friendly checklist)
+
+### Phase 1 — Foundations
+
+1. **protocol/**
+
+   * define request/response structs (exec/read/write/error)
+2. **runner/**
+
+   * PTY + shell + sentinel markers
+   * unix socket server at `/run/sandkasten/runner.sock`
+   * path sandboxing to `/workspace`
+3. **imgbuilder/**
+
+   * import rootfs tar → image store unpack + meta.json
+   * list images, validate required files exist
+
+### Phase 2 — Linux runtime driver
+
+4. **runtime/linux/mount.go**
+
+   * overlay mount + bind mounts + tmpfs + minimal /dev
+   * unmount cleanup
+5. **runtime/linux/cgroup.go**
+
+   * create cgroup dir
+   * write limits
+   * attach pid
+   * kill all procs on destroy
+6. **runtime/linux/nsinit.go**
+
+   * reexec stage1
+   * pivot_root + proc mount
+   * drop privs, no_new_privs, caps drop
+   * seccomp MVP (can start “off”, add later)
+7. **runtime/linux/create.go**
+
+   * create dirs
+   * mount
+   * create cgroup
+   * start nsinit → runner
+   * wait until runner socket exists (with timeout)
+   * write state.json
+8. **runtime/linux/exec.go**
+
+   * connect to runner.sock, send request, read response
+9. **runtime/linux/destroy.go**
+
+   * SIGTERM/SIGKILL init pid
+   * cgroup kill fallback
+   * unmount + delete dirs
+
+### Phase 3 — Daemon API + store
+
+10. **store/**
+
+    * migrations + CRUD for sessions
+11. **session manager**
+
+    * create/exec/read/write/destroy
+    * per-session mutex map
+    * update `last_activity`, extend `expires_at`
+12. **api/**
+
+    * routes + middleware + handlers
+13. **reaper/**
+
+    * ttl sweep + reconciliation on boot
+14. **integration tests**
+
+    * create session → `exec "pwd"` → write file → read file → install pip pkg → run python → destroy
+    * verify memory/pids limits behave
+    * verify no-network mode (if enabled) blocks `curl`/DNS
+
+### Phase 4 — WSL packaging (optional)
+
+15. `sandkasten-wsl.exe` helper or docs + script to run daemon inside WSL
 
 ---
 
-## Implementation Order
+## 15) Acceptance criteria (MVP)
 
-| # | What | Deliverable | Depends on |
-|---|------|-------------|------------|
-| 1 | Runner binary | `cmd/runner/main.go` — PTY, sentinel, unix socket, request handling | — |
-| 2 | Runner client mode | `runner --client '{...}'` flag | 1 |
-| 3 | Protocol types | `protocol/` package (shared between runner and daemon) | — |
-| 4 | Base Dockerfile | `images/base/Dockerfile` + build script | 1 |
-| 5 | Config + store | `internal/config`, `internal/store` (SQLite) | — |
-| 6 | Docker wrapper | `internal/docker` (create, exec, remove, list) | 3 |
-| 7 | Session manager | `internal/session` (orchestration, locking) | 5, 6 |
-| 8 | HTTP API | `internal/api` (routes, middleware, handlers) | 7 |
-| 9 | Reaper | `internal/reaper` (GC + reconciliation) | 5, 6 |
-| 10 | Daemon main | `cmd/sandkasten/main.go` (wires everything) | 5–9 |
-| 11 | Integration test | End-to-end: create session, exec, read, write, destroy | 1–10 |
-| 12 | TS SDK | `sdk/` package | 8 (just needs API spec) |
-| 13 | Example | `examples/openai-agents/` | 12 |
-
-Steps 1–3 can be parallel. Steps 5–6 can be parallel. Step 11 is the validation gate.
+* Can run 100+ concurrent sessions without Docker
+* Session create < ~100ms (after image unpack)
+* Exec is stateful (`cd` persists)
+* TTL cleanup leaves no mounts behind (`mount | grep sandkasten` empty)
+* After daemon crash/restart, reconciliation cleans orphan sessions
+* Works in WSL2 **when data dir is inside Linux filesystem** ([Stack Overflow][2])
 
 ---
 
-## What's deferred (not in this plan)
+## 16) Optional Phase 2 upgrades (once MVP is stable)
 
-- Multi-tenancy (tenant_id, subject_id, per-tenant policies)
-- JWT auth
-- Streaming/SSE exec output
-- Persisted workspaces
-- Restricted egress networking
-- Warm session pools
-- Seccomp profiles
-- Metrics/observability beyond logs
+* Workspace snapshots (`tar.zst`) + restore
+* Output streaming over SSE
+* Warm session pools per image
+* Proxy-only egress networking
+* Strict seccomp + landlock
+* Alternative driver: Firecracker for “high-risk” runs (same API)
+
+---
+
+[1]: https://stackoverflow.com/questions/79469388/how-to-enable-cgroup-v1-in-wsl2?utm_source=chatgpt.com "How to enable cgroup v1 in WSL2"
+[2]: https://stackoverflow.com/questions/76481801/error-after-moving-dockers-dir-to-ntfs-overlayfs-upper-fs-does-not-support-x?utm_source=chatgpt.com "Error after moving Docker's dir to NTFS: overlayfs: upper fs ..."
+[3]: https://learn.microsoft.com/en-us/windows/wsl/wsl-config?utm_source=chatgpt.com "Advanced settings configuration in WSL"
+

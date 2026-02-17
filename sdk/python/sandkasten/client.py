@@ -48,15 +48,15 @@ class SandboxClient:
     async def create_session(
         self,
         *,
-        image: str = "sandbox-runtime:python",
+        image: str = "python",
         ttl_seconds: int | None = None,
         workspace_id: str | None = None,
     ) -> Session:
         """Create a new sandbox session.
 
         Args:
-            image: Docker image to use (default: sandbox-runtime:python)
-                   Available: sandbox-runtime:base, :python, :node
+            image: Docker image to use (default: python)
+                   Available: base, python, node
             ttl_seconds: Session TTL in seconds (None = daemon default)
             workspace_id: Optional persistent workspace ID (None = ephemeral)
 
@@ -68,11 +68,11 @@ class SandboxClient:
 
         Example:
             >>> # Ephemeral session
-            >>> session = await client.create_session(image="sandbox-runtime:python")
+            >>> session = await client.create_session(image="python")
 
             >>> # Persistent workspace
             >>> session = await client.create_session(
-            ...     image="sandbox-runtime:python",
+            ...     image="python",
             ...     workspace_id="user123-project456"
             ... )
         """

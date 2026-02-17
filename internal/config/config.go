@@ -18,8 +18,8 @@ type Defaults struct {
 }
 
 type PoolConfig struct {
-	Enabled bool               `yaml:"enabled"`
-	Images  map[string]int     `yaml:"images"` // image -> pool size
+	Enabled bool           `yaml:"enabled"`
+	Images  map[string]int `yaml:"images"` // image -> pool size
 }
 
 type WorkspaceConfig struct {
@@ -27,24 +27,31 @@ type WorkspaceConfig struct {
 	PersistByDefault bool `yaml:"persist_by_default"`
 }
 
+type SecurityConfig struct {
+	Seccomp string `yaml:"seccomp"` // off | mvp | strict
+}
+
 type Config struct {
-	Listen                 string          `yaml:"listen"`
-	APIKey                 string          `yaml:"api_key"`
-	DefaultImage           string          `yaml:"default_image"`
-	AllowedImages          []string        `yaml:"allowed_images"`
-	DBPath                 string          `yaml:"db_path"`
-	SessionTTLSeconds      int             `yaml:"session_ttl_seconds"`
-	PlaygroundConfigPath   string          `yaml:"playground_config_path"`
-	Defaults               Defaults        `yaml:"defaults"`
-	Pool                   PoolConfig      `yaml:"pool"`
-	Workspace              WorkspaceConfig `yaml:"workspace"`
+	Listen               string          `yaml:"listen"`
+	APIKey               string          `yaml:"api_key"`
+	DataDir              string          `yaml:"data_dir"`
+	DefaultImage         string          `yaml:"default_image"`
+	AllowedImages        []string        `yaml:"allowed_images"`
+	DBPath               string          `yaml:"db_path"`
+	SessionTTLSeconds    int             `yaml:"session_ttl_seconds"`
+	PlaygroundConfigPath string          `yaml:"playground_config_path"`
+	Defaults             Defaults        `yaml:"defaults"`
+	Pool                 PoolConfig      `yaml:"pool"`
+	Workspace            WorkspaceConfig `yaml:"workspace"`
+	Security             SecurityConfig  `yaml:"security"`
 }
 
 func Load(yamlPath string) (*Config, error) {
 	cfg := &Config{
 		Listen:            "127.0.0.1:8080",
-		DefaultImage:      "sandbox-runtime:base",
-		DBPath:            "./sandkasten.db",
+		DataDir:           "/var/lib/sandkasten",
+		DefaultImage:      "base",
+		DBPath:            "/var/lib/sandkasten/sandkasten.db",
 		SessionTTLSeconds: 1800,
 		Defaults: Defaults{
 			CPULimit:         1.0,
@@ -61,6 +68,9 @@ func Load(yamlPath string) (*Config, error) {
 		Workspace: WorkspaceConfig{
 			Enabled:          false,
 			PersistByDefault: false,
+		},
+		Security: SecurityConfig{
+			Seccomp: "off",
 		},
 	}
 
@@ -131,5 +141,11 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("SANDKASTEN_PLAYGROUND_CONFIG_PATH"); v != "" {
 		cfg.PlaygroundConfigPath = v
+	}
+	if v := os.Getenv("SANDKASTEN_DATA_DIR"); v != "" {
+		cfg.DataDir = v
+	}
+	if v := os.Getenv("SANDKASTEN_SECCOMP"); v != "" {
+		cfg.Security.Seccomp = v
 	}
 }

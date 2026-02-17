@@ -3,94 +3,91 @@
 **5-minute end-to-end example** — run a coding agent with a real Linux sandbox.
 
 This quickstart includes:
-- 🐳 Sandkasten daemon (Docker Compose)
+- 🐧 Sandkasten daemon (native Linux sandboxing)
 - 🤖 Enhanced interactive agent (OpenAI Agents SDK)
 - 🎨 Rich terminal UI with streaming & history
 - 📦 Three example agents to try
 
-## What You'll Get
-
-```
-┌─ Sandkasten Interactive Agent ─────────────────┐
-│ Streaming • History • Rich UI                  │
-└─────────────────────────────────────────────────┘
-
-┌─ Session ───────────────────────────────────────┐
-│ Sandbox:  abc123                                │
-│ Image:    sandbox-runtime:python                │
-│ Network:  full                                  │
-└─────────────────────────────────────────────────┘
-
-You: Write a Python script to calculate primes up to 100
-
-  → exec: python3 --version
-  → write: primes.py
-  → exec: python3 primes.py
-
-┌─ Assistant ─────────────────────────────────────┐
-│ I've created and run a prime number calculator. │
-│                                                  │
-│ The script found all primes up to 100:          │
-│ [2, 3, 5, 7, 11, 13, 17, 19, 23, ...]          │
-└─────────────────────────────────────────────────┘
-```
-
----
-
 ## Prerequisites
 
-- Docker & Docker Compose
+- Linux (kernel 5.11+) or WSL2
+- Go 1.24+ (for building)
 - Python 3.10+
 - OpenAI API key
 
 ---
 
-## Step 1: Build Sandbox Images
-
-From the **repo root** (one directory up):
+## Step 1: Build and Install
 
 ```bash
-cd ..
-task images
-cd quickstart
+# From repo root
+task build
 ```
 
-This builds the base, Python, and Node sandbox images.
+This builds:
+- `bin/sandkasten` - The daemon
+- `bin/runner` - Runner binary
+- `bin/imgbuilder` - Image management tool
 
 ---
 
-## Step 2: Start Sandkasten Daemon
+## Step 2: Prepare Images
+
+Import at least one rootfs image:
 
 ```bash
-cd daemon
-docker-compose up -d
+# Quick method: export from Docker
+docker create --name temp python:3.12-slim
+docker export temp | gzip > /tmp/python.tar.gz
+docker rm temp
+
+# Import into sandkasten
+sudo ./bin/imgbuilder import --name python --tar /tmp/python.tar.gz
+
+# Verify
+./bin/imgbuilder list
 ```
 
-The daemon is now running at `http://localhost:8080` with API key `sk-sandbox-quickstart`.
+---
 
-**Check it's working:**
+## Step 3: Start Sandkasten Daemon
+
+Create `sandkasten.yaml`:
+
+```yaml
+listen: "127.0.0.1:8080"
+api_key: "sk-sandbox-quickstart"
+data_dir: "/var/lib/sandkasten"
+default_image: "python"
+```
+
+Start the daemon:
+
+```bash
+# Create data directories
+sudo mkdir -p /var/lib/sandkasten/{images,sessions,workspaces}
+
+# Start daemon (requires root for namespaces)
+sudo ./bin/sandkasten --config sandkasten.yaml
+```
+
+Check it's working:
 
 ```bash
 curl http://localhost:8080/healthz
 # Should return: {"status":"ok"}
 ```
 
-**View logs:**
-
-```bash
-docker-compose logs -f
-```
-
 ---
 
-## Step 3: Run the Agent
+## Step 4: Run the Agent
 
-### Option A: Enhanced Interactive Agent (Recommended)
+### Enhanced Interactive Agent (Recommended)
 
 Beautiful terminal UI with streaming, history, and rich formatting:
 
 ```bash
-cd ../agent
+cd quickstart/agent
 
 # Setup with uv
 uv sync
@@ -103,18 +100,18 @@ uv run enhanced_agent.py
 ```
 
 **Features:**
-- 🎨 Rich terminal UI with boxes and colors
-- ⚡ Streaming responses (token-by-token)
-- 💾 Persistent conversation history (SQLite)
-- 🔧 Visual tool execution feedback
-- 📜 Commands: `/history`, `/clear`, `/help`, `/quit`
+- Rich terminal UI with boxes and colors
+- Streaming responses (token-by-token)
+- Persistent conversation history (SQLite)
+- Visual tool execution feedback
+- Commands: `/history`, `/clear`, `/help`, `/quit`
 
 **Try it:**
 ```
 You: Write a Python script that calculates prime numbers up to 100, save it as primes.py, and run it
 ```
 
-### Option B: Simple Example
+### Simple Example
 
 Single-task example (Fibonacci):
 
@@ -122,7 +119,7 @@ Single-task example (Fibonacci):
 uv run coding_agent.py
 ```
 
-### Option C: Basic Interactive
+### Basic Interactive
 
 Simple interactive mode without fancy UI:
 
@@ -132,23 +129,18 @@ uv run interactive_agent.py
 
 ---
 
-## Step 4: Try Example Tasks
+## Step 5: Try Example Tasks
 
 In the enhanced agent, try these prompts:
 
 **Code Generation:**
 ```
-Write a Python script that scrapes the top HN stories and saves them to a JSON file
+Write a Python script that generates Fibonacci numbers and saves them to a file
 ```
 
 **Data Analysis:**
 ```
-Create a CSV with random sales data (100 rows), then calculate monthly totals and plot a chart
-```
-
-**Web Development:**
-```
-Create a simple Flask API with /hello and /time endpoints, write tests, and run them
+Create a CSV with random sales data (100 rows), then calculate monthly totals
 ```
 
 **System Tasks:**
@@ -164,79 +156,73 @@ Check the system info (OS, CPU, memory), create a report file with the results
 
 ---
 
-## Step 5: Clean Up
-
-```bash
-cd ../daemon
-docker-compose down
-
-# Remove volumes (optional)
-docker-compose down -v
-```
-
----
-
 ## Configuration
 
-### Daemon Config (`daemon/sandkasten.yaml`)
+### Daemon Config (`sandkasten.yaml`)
 
 ```yaml
-listen: "0.0.0.0:8080"
+listen: "127.0.0.1:8080"
 api_key: "sk-sandbox-quickstart"
-session_ttl_seconds: 1800
+data_dir: "/var/lib/sandkasten"
+default_image: "python"
 
 defaults:
   cpu_limit: 1.0
   mem_limit_mb: 512
-  network_mode: "none"  # Change to "full" if agent needs internet
+  network_mode: "none"
 ```
 
-### Agent Config (`agent/coding_agent.py`)
+### Agent Config
 
-```python
-SANDKASTEN_URL = "http://localhost:8080"
-SANDKASTEN_API_KEY = "sk-sandbox-quickstart"
+The agent reads from environment:
+
+```bash
+export SANDKASTEN_URL="http://localhost:8080"
+export SANDKASTEN_API_KEY="sk-sandbox-quickstart"
 ```
 
 ---
 
 ## Next Steps
 
-- **Use a different image**: Change `"sandbox-runtime:python"` to `"sandbox-runtime:node"` in the agent
-- **Persist workspace**: Add workspace persistence across sessions (see main README)
+- **Add more images**: Import Node.js, custom images
+- **Persist workspace**: Use `workspace_id` to persist files across sessions
 - **Add more tools**: Extend the agent with git, database, or API tools
-- **Deploy to server**: Use the main `docker-compose.yml` with TLS and proper auth
 
 ---
 
 ## Troubleshooting
 
 ### "Connection refused"
-The daemon isn't running. Check:
+The daemon isn't running:
 ```bash
-cd daemon
-docker-compose ps
-docker-compose logs
+sudo ./bin/sandkasten --config sandkasten.yaml
 ```
 
-### "Image not found: sandbox-runtime:python"
-You need to build images first:
+### "Image not found: python"
+Import the image:
 ```bash
-cd ..
-task images
+sudo ./bin/imgbuilder import --name python --tar python.tar.gz
 ```
 
-### Agent hangs or times out
-Check sandbox logs:
+### "cgroup v2 not mounted"
+Ensure you're on Linux with cgroups v2:
 ```bash
-docker ps  # Find the sandkasten-<session_id> container
-docker logs sandkasten-<session_id>
+mount | grep cgroup2
 ```
 
-### "Invalid API key"
-Make sure the API key matches in:
-- `daemon/sandkasten.yaml` (`api_key`)
-- `agent/coding_agent.py` (`SANDKASTEN_API_KEY`)
+### "overlayfs: upper fs does not support xattrs"
+On WSL2, store data in Linux filesystem:
+```yaml
+data_dir: "/var/lib/sandkasten"  # Correct
+# data_dir: "/mnt/c/..."         # Wrong (NTFS)
+```
+
+### "permission denied"
+Daemon needs root for namespace operations:
+```bash
+sudo ./bin/sandkasten --config sandkasten.yaml
+```
 
 ---
 
@@ -244,21 +230,21 @@ Make sure the API key matches in:
 
 ```
 ┌─────────────────────┐
-│  coding_agent.py    │  ← Your Python script
+│  enhanced_agent.py  │  ← Your Python script
 │  (OpenAI Agents)    │
 └──────────┬──────────┘
            │ HTTP (localhost:8080)
 ┌──────────▼──────────┐
-│  Sandkasten Daemon  │  ← Docker Compose
+│  Sandkasten Daemon  │  ← Native Linux sandboxing
 │  (sandkasten.yaml)  │
 └──────────┬──────────┘
-           │ Docker API
+           │ Namespaces + cgroups + overlayfs
 ┌──────────▼──────────────┐
-│  Sandbox Container      │
-│  (sandbox-runtime:python)│
+│  Sandbox Process        │
+│  - Runner (PID 1)       │
 │  - bash shell (stateful)│
-│  - /workspace (volume)  │
+│  - /workspace (bind)    │
 └─────────────────────────┘
 ```
 
-Each tool call from the agent → HTTP request → container exec → response.
+Each tool call from the agent → HTTP request → sandbox exec → response.

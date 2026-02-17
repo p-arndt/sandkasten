@@ -12,11 +12,11 @@ import (
 )
 
 func TestGetSuccess(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 	now := time.Now().UTC()
 	sess := &store.Session{
 		ID:        "s1",
-		Image:     "sandbox-runtime:base",
+		Image:     "base",
 		Status:    "running",
 		Cwd:       "/workspace",
 		CreatedAt: now,
@@ -29,12 +29,12 @@ func TestGetSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "s1", info.ID)
-	assert.Equal(t, "sandbox-runtime:base", info.Image)
+	assert.Equal(t, "base", info.Image)
 	assert.Equal(t, "running", info.Status)
 }
 
 func TestGetNotFound(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 
 	st.On("GetSession", "nonexistent").Return(nil, nil)
 
@@ -43,7 +43,7 @@ func TestGetNotFound(t *testing.T) {
 }
 
 func TestListSuccess(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 	now := time.Now().UTC()
 
 	st.On("ListSessions").Return([]*store.Session{
@@ -59,7 +59,7 @@ func TestListSuccess(t *testing.T) {
 }
 
 func TestListEmpty(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 
 	st.On("ListSessions").Return([]*store.Session{}, nil)
 
@@ -69,26 +69,26 @@ func TestListEmpty(t *testing.T) {
 }
 
 func TestDestroySuccess(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+	mgr, rt, st := newTestManager()
 	sess := &store.Session{
-		ID:          "s1",
-		ContainerID: "container-s1",
-		Status:      "running",
+		ID:      "s1",
+		InitPID: 12345,
+		Status:  "running",
 	}
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("RemoveContainer", mock.Anything, "container-s1", "s1").Return(nil)
+	rt.On("Destroy", mock.Anything, "s1").Return(nil)
 	st.On("UpdateSessionStatus", "s1", "destroyed").Return(nil)
 
 	err := mgr.Destroy(context.Background(), "s1")
 	require.NoError(t, err)
 
-	dc.AssertCalled(t, "RemoveContainer", mock.Anything, "container-s1", "s1")
+	rt.AssertCalled(t, "Destroy", mock.Anything, "s1")
 	st.AssertCalled(t, "UpdateSessionStatus", "s1", "destroyed")
 }
 
 func TestDestroyNotFound(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 
 	st.On("GetSession", "nonexistent").Return(nil, nil)
 
@@ -98,24 +98,22 @@ func TestDestroyNotFound(t *testing.T) {
 }
 
 func TestDestroyRemovesLock(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+	mgr, rt, st := newTestManager()
 	sess := &store.Session{
-		ID:          "s1",
-		ContainerID: "container-s1",
-		Status:      "running",
+		ID:      "s1",
+		InitPID: 12345,
+		Status:  "running",
 	}
 
-	// Create a lock first
 	_ = mgr.sessionLock("s1")
 	assert.Len(t, mgr.locks, 1)
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("RemoveContainer", mock.Anything, "container-s1", "s1").Return(nil)
+	rt.On("Destroy", mock.Anything, "s1").Return(nil)
 	st.On("UpdateSessionStatus", "s1", "destroyed").Return(nil)
 
 	err := mgr.Destroy(context.Background(), "s1")
 	require.NoError(t, err)
 
-	// Lock should be cleaned up
 	assert.Len(t, mgr.locks, 0)
 }

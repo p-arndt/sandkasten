@@ -4,20 +4,20 @@ import (
 	"context"
 	"time"
 
-	"github.com/p-arndt/sandkasten/internal/docker"
+	"github.com/p-arndt/sandkasten/internal/runtime"
 	"github.com/p-arndt/sandkasten/internal/store"
-	"github.com/p-arndt/sandkasten/internal/workspace"
 	"github.com/p-arndt/sandkasten/protocol"
 )
 
-// DockerClient abstracts docker operations needed by session management.
-type DockerClient interface {
-	CreateContainer(ctx context.Context, opts docker.CreateOpts) (string, error)
-	ExecRunner(ctx context.Context, containerID string, req protocol.Request) (*protocol.Response, error)
-	RemoveContainer(ctx context.Context, containerID string, sessionID string) error
+type RuntimeDriver interface {
+	Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.SessionInfo, error)
+	Exec(ctx context.Context, sessionID string, req protocol.Request) (*protocol.Response, error)
+	Destroy(ctx context.Context, sessionID string) error
+	IsRunning(ctx context.Context, sessionID string) (bool, error)
+	Ping(ctx context.Context) error
+	Close() error
 }
 
-// SessionStore abstracts store operations needed by session management.
 type SessionStore interface {
 	CreateSession(sess *store.Session) error
 	GetSession(id string) (*store.Session, error)
@@ -26,15 +26,12 @@ type SessionStore interface {
 	UpdateSessionStatus(id string, status string) error
 }
 
-// ContainerPool abstracts pool operations needed by session management.
 type ContainerPool interface {
 	Get(ctx context.Context, image string) (string, bool)
 }
 
-// WorkspaceManager abstracts workspace operations needed by session management.
 type WorkspaceManager interface {
 	Create(ctx context.Context, workspaceID string, labels map[string]string) error
 	Exists(ctx context.Context, workspaceID string) (bool, error)
-	List(ctx context.Context) ([]*workspace.Workspace, error)
 	Delete(ctx context.Context, workspaceID string) error
 }

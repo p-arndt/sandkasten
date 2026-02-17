@@ -4,11 +4,9 @@ import (
 	"context"
 
 	"github.com/p-arndt/sandkasten/internal/session"
-	"github.com/p-arndt/sandkasten/internal/workspace"
 	"github.com/stretchr/testify/mock"
 )
 
-// MockSessionService mocks the SessionService interface.
 type MockSessionService struct {
 	mock.Mock
 }
@@ -65,10 +63,10 @@ func (m *MockSessionService) Read(ctx context.Context, sessionID, path string, m
 	return args.String(0), args.Bool(1), args.Error(2)
 }
 
-func (m *MockSessionService) ListWorkspaces(ctx context.Context) ([]*workspace.Workspace, error) {
+func (m *MockSessionService) ListWorkspaces(ctx context.Context) ([]*session.WorkspaceInfo, error) {
 	args := m.Called(ctx)
 	if ws := args.Get(0); ws != nil {
-		return ws.([]*workspace.Workspace), args.Error(1)
+		return ws.([]*session.WorkspaceInfo), args.Error(1)
 	}
 	return nil, args.Error(1)
 }

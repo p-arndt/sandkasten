@@ -13,17 +13,17 @@ import (
 )
 
 func TestWriteText(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+	mgr, rt, st := newTestManager()
 	sess := &store.Session{
-		ID:          "s1",
-		ContainerID: "container-s1",
-		Status:      "running",
-		Cwd:         "/workspace",
-		ExpiresAt:   time.Now().UTC().Add(5 * time.Minute),
+		ID:        "s1",
+		InitPID:   12345,
+		Status:    "running",
+		Cwd:       "/workspace",
+		ExpiresAt: time.Now().UTC().Add(5 * time.Minute),
 	}
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("ExecRunner", mock.Anything, "container-s1", mock.MatchedBy(func(req protocol.Request) bool {
+	rt.On("Exec", mock.Anything, "s1", mock.MatchedBy(func(req protocol.Request) bool {
 		return req.Type == protocol.RequestWrite && req.Path == "/workspace/test.py" && req.Text == "print('hello')"
 	})).Return(&protocol.Response{
 		Type: protocol.ResponseWrite,
@@ -36,17 +36,17 @@ func TestWriteText(t *testing.T) {
 }
 
 func TestWriteBase64(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+	mgr, rt, st := newTestManager()
 	sess := &store.Session{
-		ID:          "s1",
-		ContainerID: "container-s1",
-		Status:      "running",
-		Cwd:         "/workspace",
-		ExpiresAt:   time.Now().UTC().Add(5 * time.Minute),
+		ID:        "s1",
+		InitPID:   12345,
+		Status:    "running",
+		Cwd:       "/workspace",
+		ExpiresAt: time.Now().UTC().Add(5 * time.Minute),
 	}
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("ExecRunner", mock.Anything, "container-s1", mock.MatchedBy(func(req protocol.Request) bool {
+	rt.On("Exec", mock.Anything, "s1", mock.MatchedBy(func(req protocol.Request) bool {
 		return req.Type == protocol.RequestWrite && req.ContentBase64 == "aGVsbG8="
 	})).Return(&protocol.Response{
 		Type: protocol.ResponseWrite,
@@ -59,17 +59,17 @@ func TestWriteBase64(t *testing.T) {
 }
 
 func TestReadSuccess(t *testing.T) {
-	mgr, dc, st, _, _ := newTestManager()
+	mgr, rt, st := newTestManager()
 	sess := &store.Session{
-		ID:          "s1",
-		ContainerID: "container-s1",
-		Status:      "running",
-		Cwd:         "/workspace",
-		ExpiresAt:   time.Now().UTC().Add(5 * time.Minute),
+		ID:        "s1",
+		InitPID:   12345,
+		Status:    "running",
+		Cwd:       "/workspace",
+		ExpiresAt: time.Now().UTC().Add(5 * time.Minute),
 	}
 
 	st.On("GetSession", "s1").Return(sess, nil)
-	dc.On("ExecRunner", mock.Anything, "container-s1", mock.MatchedBy(func(req protocol.Request) bool {
+	rt.On("Exec", mock.Anything, "s1", mock.MatchedBy(func(req protocol.Request) bool {
 		return req.Type == protocol.RequestRead && req.Path == "/workspace/test.py"
 	})).Return(&protocol.Response{
 		Type:          protocol.ResponseRead,
@@ -85,7 +85,7 @@ func TestReadSuccess(t *testing.T) {
 }
 
 func TestReadNotFound(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 
 	st.On("GetSession", "nonexistent").Return(nil, nil)
 
@@ -94,7 +94,7 @@ func TestReadNotFound(t *testing.T) {
 }
 
 func TestWriteNotFound(t *testing.T) {
-	mgr, _, st, _, _ := newTestManager()
+	mgr, _, st := newTestManager()
 
 	st.On("GetSession", "nonexistent").Return(nil, nil)
 

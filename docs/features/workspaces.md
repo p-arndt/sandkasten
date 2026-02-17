@@ -1,10 +1,10 @@
 # Persistent Workspaces
 
-Docker volume-backed storage that survives session destruction.
+Directory-backed storage that survives session destruction.
 
 ## Overview
 
-By default, sessions are **ephemeral** - files are lost when the session is destroyed. With persistent workspaces, files are stored in named Docker volumes that survive session destruction.
+By default, sessions are **ephemeral** - files are lost when the session is destroyed. With persistent workspaces, files are stored in directories on the host that survive session destruction.
 
 ## Use Cases
 
@@ -19,7 +19,7 @@ By default, sessions are **ephemeral** - files are lost when the session is dest
 Session 1 (workspace: "user123-project")
 ├─ write file.py
 ├─ execute code
-└─ destroy → files persist in volume
+└─ destroy → files persist in /var/lib/sandkasten/workspaces/user123-project/
 
 Session 2 (workspace: "user123-project")
 ├─ read file.py → ✅ still there!
@@ -44,7 +44,7 @@ workspace:
 curl -X POST http://localhost:8080/v1/sessions \
   -H "Authorization: Bearer sk-..." \
   -d '{
-    "image": "sandbox-runtime:python",
+    "image": "python",
     "workspace_id": "user123-project"
   }'
 ```
@@ -66,6 +66,18 @@ curl -X DELETE http://localhost:8080/v1/workspaces/user123-project \
 ```
 
 ⚠️ **Warning:** This permanently deletes all files.
+
+### Browse Workspace Files
+
+```bash
+# List files
+curl http://localhost:8080/v1/workspaces/user123-project/fs \
+  -H "Authorization: Bearer sk-..."
+
+# Read file
+curl "http://localhost:8080/v1/workspaces/user123-project/fs/read?path=/code.py" \
+  -H "Authorization: Bearer sk-..."
+```
 
 ## SDK Usage
 
@@ -113,27 +125,43 @@ workspace_id = f"{user_id}-{project_id}"
 workspace_id = f"temp-{uuid.uuid4()}"
 ```
 
-## Volume Management
+## Filesystem Layout
 
-Workspaces are stored as Docker volumes:
+Workspaces are stored as directories:
+
+```
+/var/lib/sandkasten/workspaces/
+├── user123-project/
+│   ├── code.py
+│   └── data.csv
+├── user456-analysis/
+│   └── report.pdf
+└── temp-abc123/
+    └── ...
+```
+
+### Manual Access
 
 ```bash
-# List volumes
-docker volume ls --filter label=sandkasten.workspace=true
+# List workspaces
+ls /var/lib/sandkasten/workspaces/
 
-# Inspect volume
-docker volume inspect sandkasten-ws-user123-project
+# Inspect workspace
+ls -la /var/lib/sandkasten/workspaces/user123-project/
 
-# Manual cleanup
-docker volume rm sandkasten-ws-user123-project
+# Backup workspace
+tar -czf backup.tar.gz -C /var/lib/sandkasten/workspaces user123-project/
+
+# Copy to/from workspace
+cp local_file.txt /var/lib/sandkasten/workspaces/user123-project/
 ```
 
 ## Limitations
 
-- **Size:** No built-in size limits (use Docker storage drivers)
+- **Size:** No built-in size limits (use filesystem quotas)
 - **Sharing:** No access control (any session with workspace_id can access)
-- **Backup:** Use Docker volume backup tools
-- **Migration:** Requires Docker volume export/import
+- **Backup:** Use standard filesystem backup tools
+- **Concurrency:** Multiple sessions using same workspace may conflict
 
 ## Best Practices
 
@@ -154,13 +182,13 @@ docker volume rm sandkasten-ws-user123-project
 3. **Handle conflicts**
    ```python
    # Multiple sessions can use same workspace
-   # Implement locking if needed
+   # Implement application-level locking if needed
    ```
 
 4. **Monitor size**
    ```bash
    # Check workspace sizes
-   docker system df -v | grep sandkasten-ws
+   du -sh /var/lib/sandkasten/workspaces/*
    ```
 
 ## Troubleshooting
@@ -173,16 +201,27 @@ workspace:
   enabled: true
 ```
 
-### Volume not found
+### Workspace not found
 
-Workspace is auto-created on first session use. If deleted manually via Docker, it will be recreated.
+Workspace is auto-created on first session use. Check the data directory:
+```bash
+ls /var/lib/sandkasten/workspaces/
+```
 
-### Volume too large
+### Directory too large
 
 ```bash
 # Check size
-docker volume inspect sandkasten-ws-myworkspace | jq '.[0].Options.size'
+du -sh /var/lib/sandkasten/workspaces/myworkspace
 
-# Clean up
-docker exec -it <container> du -sh /workspace/*
+# Clean up large files
+du -sh /var/lib/sandkasten/workspaces/myworkspace/*
+```
+
+### Permission denied
+
+Ensure daemon has write access:
+```bash
+sudo chown -R root:root /var/lib/sandkasten/workspaces/
+sudo chmod -R 755 /var/lib/sandkasten/workspaces/
 ```

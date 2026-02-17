@@ -17,7 +17,8 @@ var (
 type Session struct {
 	ID           string    `json:"id"`
 	Image        string    `json:"image"`
-	ContainerID  string    `json:"container_id"`
+	InitPID      int       `json:"init_pid"`
+	CgroupPath   string    `json:"cgroup_path"`
 	Status       string    `json:"status"`
 	Cwd          string    `json:"cwd"`
 	WorkspaceID  string    `json:"workspace_id,omitempty"`
@@ -34,7 +35,8 @@ const createTableSQL = `
 CREATE TABLE IF NOT EXISTS sessions (
 	id            TEXT PRIMARY KEY,
 	image         TEXT NOT NULL,
-	container_id  TEXT NOT NULL,
+	init_pid      INTEGER NOT NULL DEFAULT 0,
+	cgroup_path   TEXT NOT NULL DEFAULT '',
 	status        TEXT NOT NULL DEFAULT 'running',
 	cwd           TEXT NOT NULL DEFAULT '/workspace',
 	workspace_id  TEXT,
@@ -47,8 +49,9 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_workspace_id ON sessions(workspace_id);
 `
 
-const migrateWorkspaceSQL = `
-ALTER TABLE sessions ADD COLUMN workspace_id TEXT;
+const migrateAddRuntimeFieldsSQL = `
+ALTER TABLE sessions ADD COLUMN init_pid INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN cgroup_path TEXT NOT NULL DEFAULT '';
 `
 
 func New(dbPath string) (*Store, error) {
@@ -67,8 +70,8 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 
-	// Run migration for workspace_id (idempotent)
-	db.Exec(migrateWorkspaceSQL) // Ignore error if column exists
+	// Run migration for runtime fields (idempotent)
+	db.Exec(migrateAddRuntimeFieldsSQL) // Ignore error if columns exist
 
 	return &Store{db: db}, nil
 }
@@ -79,9 +82,9 @@ func (s *Store) Close() error {
 
 func (s *Store) CreateSession(sess *Session) error {
 	_, err := s.db.Exec(
-		`INSERT INTO sessions (id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		sess.ID, sess.Image, sess.ContainerID, sess.Status, sess.Cwd, sess.WorkspaceID,
+		`INSERT INTO sessions (id, image, init_pid, cgroup_path, status, cwd, workspace_id, created_at, expires_at, last_activity)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sess.ID, sess.Image, sess.InitPID, sess.CgroupPath, sess.Status, sess.Cwd, sess.WorkspaceID,
 		sess.CreatedAt.UTC(), sess.ExpiresAt.UTC(), sess.LastActivity.UTC(),
 	)
 	if err != nil {
@@ -92,7 +95,7 @@ func (s *Store) CreateSession(sess *Session) error {
 
 func (s *Store) GetSession(id string) (*Session, error) {
 	row := s.db.QueryRow(
-		`SELECT id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity
+		`SELECT id, image, init_pid, cgroup_path, status, cwd, workspace_id, created_at, expires_at, last_activity
 		 FROM sessions WHERE id = ?`, id,
 	)
 	return scanSession(row)
@@ -100,7 +103,7 @@ func (s *Store) GetSession(id string) (*Session, error) {
 
 func (s *Store) ListSessions() ([]*Session, error) {
 	rows, err := s.db.Query(
-		`SELECT id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity
+		`SELECT id, image, init_pid, cgroup_path, status, cwd, workspace_id, created_at, expires_at, last_activity
 		 FROM sessions ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -133,7 +136,7 @@ func (s *Store) UpdateSessionStatus(id string, status string) error {
 
 func (s *Store) ListExpiredSessions() ([]*Session, error) {
 	rows, err := s.db.Query(
-		`SELECT id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity
+		`SELECT id, image, init_pid, cgroup_path, status, cwd, workspace_id, created_at, expires_at, last_activity
 		 FROM sessions WHERE status = 'running' AND expires_at <= ?`,
 		time.Now().UTC(),
 	)
@@ -146,7 +149,7 @@ func (s *Store) ListExpiredSessions() ([]*Session, error) {
 
 func (s *Store) ListRunningSessions() ([]*Session, error) {
 	rows, err := s.db.Query(
-		`SELECT id, image, container_id, status, cwd, workspace_id, created_at, expires_at, last_activity
+		`SELECT id, image, init_pid, cgroup_path, status, cwd, workspace_id, created_at, expires_at, last_activity
 		 FROM sessions WHERE status = 'running'`,
 	)
 	if err != nil {
@@ -172,7 +175,7 @@ func scanSession(row scannable) (*Session, error) {
 	var sess Session
 	var workspaceID sql.NullString
 	err := row.Scan(
-		&sess.ID, &sess.Image, &sess.ContainerID, &sess.Status, &sess.Cwd,
+		&sess.ID, &sess.Image, &sess.InitPID, &sess.CgroupPath, &sess.Status, &sess.Cwd,
 		&workspaceID, &sess.CreatedAt, &sess.ExpiresAt, &sess.LastActivity,
 	)
 	if workspaceID.Valid {

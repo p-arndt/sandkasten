@@ -16,7 +16,7 @@ func (m *Manager) Write(ctx context.Context, sessionID, path string, content []b
 
 	req := buildWriteRequest(path, content, isBase64)
 
-	resp, err := m.docker.ExecRunner(ctx, sess.ContainerID, req)
+	resp, err := m.runtime.Exec(ctx, sess.ID, req)
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
@@ -36,7 +36,7 @@ func (m *Manager) Read(ctx context.Context, sessionID, path string, maxBytes int
 
 	req := buildReadRequest(path, maxBytes)
 
-	resp, err := m.docker.ExecRunner(ctx, sess.ContainerID, req)
+	resp, err := m.runtime.Exec(ctx, sess.ID, req)
 	if err != nil {
 		return "", false, fmt.Errorf("read: %w", err)
 	}

@@ -1,0 +1,8 @@
+listen: "127.0.0.1:8080"
+api_key: "sk-test"
+data_dir: "/var/lib/sandkasten"
+default_image: "python"
+defaults:
+  cpu_limit: 0      # Disabled
+  mem_limit_mb: 0   # Disabled  
+  pids_limit: 0     # Disabled
