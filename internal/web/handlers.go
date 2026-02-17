@@ -22,14 +22,15 @@ import (
 var distFS embed.FS
 
 type Handler struct {
-	store      *store.Store
-	pool       *pool.Pool
-	configPath string
-	startTime  time.Time
-	distFS     fs.FS
+	store                *store.Store
+	pool                 *pool.Pool
+	configPath           string
+	playgroundConfigPath string
+	startTime            time.Time
+	distFS               fs.FS
 }
 
-func NewHandler(store *store.Store, poolMgr *pool.Pool, configPath string) *Handler {
+func NewHandler(store *store.Store, poolMgr *pool.Pool, configPath, playgroundConfigPath string) *Handler {
 	// Extract the dist subdirectory from the embed.FS
 	distSubFS, err := fs.Sub(distFS, "dist")
 	if err != nil {
@@ -38,11 +39,12 @@ func NewHandler(store *store.Store, poolMgr *pool.Pool, configPath string) *Hand
 	}
 
 	return &Handler{
-		store:      store,
-		pool:       poolMgr,
-		configPath: configPath,
-		startTime:  time.Now(),
-		distFS:     distSubFS,
+		store:                store,
+		pool:                 poolMgr,
+		configPath:           configPath,
+		playgroundConfigPath: playgroundConfigPath,
+		startTime:            time.Now(),
+		distFS:               distSubFS,
 	}
 }
 
@@ -223,4 +225,142 @@ func (h *Handler) ValidateConfig(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// PlaygroundConfig is the JSON structure for /config/config.json (or playground_config_path).
+type PlaygroundConfig struct {
+	Playground *struct {
+		Provider           string `json:"provider"`
+		Model              string `json:"model"`
+		OpenAIApiKey       string `json:"openaiApiKey"`
+		GoogleApiKey       string `json:"googleApiKey"`
+		GoogleVertexApiKey string `json:"googleVertexApiKey"`
+		VertexProject      string `json:"vertexProject"`
+		VertexLocation     string `json:"vertexLocation"`
+	} `json:"playground"`
+}
+
+// GetPlaygroundConfig returns provider and API keys from the backend config file.
+// Requires auth (same API key as rest of API). Frontend stores keys in memory only.
+func (h *Handler) GetPlaygroundConfig(w http.ResponseWriter, r *http.Request) {
+	if h.playgroundConfigPath == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error": "playground config not configured (set playground_config_path or SANDKASTEN_PLAYGROUND_CONFIG_PATH)"}`))
+		return
+	}
+
+	data, err := os.ReadFile(h.playgroundConfigPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if os.IsNotExist(err) {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error": "playground config file not found"}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "failed to read playground config"}`))
+		return
+	}
+
+	var cfg PlaygroundConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "invalid playground config JSON"}`))
+		return
+	}
+
+	if cfg.Playground == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+		return
+	}
+
+	out := map[string]interface{}{
+		"provider":           cfg.Playground.Provider,
+		"model":              cfg.Playground.Model,
+		"openaiApiKey":       cfg.Playground.OpenAIApiKey,
+		"googleApiKey":       cfg.Playground.GoogleApiKey,
+		"googleVertexApiKey": cfg.Playground.GoogleVertexApiKey,
+		"vertexProject":      cfg.Playground.VertexProject,
+		"vertexLocation":     cfg.Playground.VertexLocation,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+// PutPlaygroundConfig writes the playground config to the backend JSON file.
+// Creates the file and parent directory if they do not exist.
+func (h *Handler) PutPlaygroundConfig(w http.ResponseWriter, r *http.Request) {
+	if h.playgroundConfigPath == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "playground config not configured (set playground_config_path or SANDKASTEN_PLAYGROUND_CONFIG_PATH)"}`))
+		return
+	}
+
+	var body struct {
+		Provider           string `json:"provider"`
+		Model              string `json:"model"`
+		OpenAIApiKey       string `json:"openaiApiKey"`
+		GoogleApiKey       string `json:"googleApiKey"`
+		GoogleVertexApiKey string `json:"googleVertexApiKey"`
+		VertexProject      string `json:"vertexProject"`
+		VertexLocation     string `json:"vertexLocation"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "invalid JSON"}`))
+		return
+	}
+
+	// Load existing file to preserve top-level keys other than "playground"
+	var root map[string]interface{}
+	if data, err := os.ReadFile(h.playgroundConfigPath); err == nil {
+		_ = json.Unmarshal(data, &root)
+	}
+	if root == nil {
+		root = make(map[string]interface{})
+	}
+
+	root["playground"] = map[string]interface{}{
+		"provider":            body.Provider,
+		"model":               body.Model,
+		"openaiApiKey":        body.OpenAIApiKey,
+		"googleApiKey":        body.GoogleApiKey,
+		"googleVertexApiKey":  body.GoogleVertexApiKey,
+		"vertexProject":       body.VertexProject,
+		"vertexLocation":      body.VertexLocation,
+	}
+
+	data, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "failed to encode config"}`))
+		return
+	}
+
+	dir := path.Dir(h.playgroundConfigPath)
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "failed to create config directory"}`))
+			return
+		}
+	}
+
+	if err := os.WriteFile(h.playgroundConfigPath, data, 0600); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "failed to write config file"}`))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }

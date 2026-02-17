@@ -25,7 +25,7 @@ func NewServer(cfg *config.Config, mgr SessionService, st *store.Store, poolMgr 
 		manager:    mgr,
 		logger:     logger,
 		mux:        http.NewServeMux(),
-		webHandler: web.NewHandler(st, poolMgr, configPath),
+		webHandler: web.NewHandler(st, poolMgr, configPath, cfg.PlaygroundConfigPath),
 	}
 	s.routes()
 	return s
@@ -49,12 +49,16 @@ func (s *Server) routes() {
 	// Workspace routes (with auth)
 	s.mux.HandleFunc("GET /v1/workspaces", s.handleListWorkspaces)
 	s.mux.HandleFunc("DELETE /v1/workspaces/{id}", s.handleDeleteWorkspace)
+	s.mux.HandleFunc("GET /v1/workspaces/{id}/fs", s.handleListWorkspaceFiles)
+	s.mux.HandleFunc("GET /v1/workspaces/{id}/fs/read", s.handleReadWorkspaceFile)
 
-	// Web API routes (read-only: no auth, modifications: requires auth if API key set)
+	// Web API routes (same auth as API when API key set)
 	s.mux.HandleFunc("GET /api/status", s.webHandler.GetStatus)
 	s.mux.HandleFunc("GET /api/config", s.webHandler.GetConfig)
-	s.mux.HandleFunc("PUT /api/config", s.webHandler.UpdateConfig)       // Protected
-	s.mux.HandleFunc("POST /api/config/validate", s.webHandler.ValidateConfig) // Protected
+	s.mux.HandleFunc("PUT /api/config", s.webHandler.UpdateConfig)
+	s.mux.HandleFunc("POST /api/config/validate", s.webHandler.ValidateConfig)
+	s.mux.HandleFunc("GET /api/playground/config", s.webHandler.GetPlaygroundConfig)
+	s.mux.HandleFunc("PUT /api/playground/config", s.webHandler.PutPlaygroundConfig)
 
 	// Health check (no auth)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

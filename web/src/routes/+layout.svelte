@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
 	import './layout.css';
 	import { page } from '$app/stores';
 	import { ModeWatcher } from 'mode-watcher';
@@ -15,8 +16,12 @@
 	let { children } = $props();
 	let bannerApiKey = $state('');
 
-	onMount(() => {
+	// Apply Sandkasten API key as soon as we're in the browser so child pages have it before their onMount
+	if (browser) {
 		initApiKeyFromStorage(api);
+	}
+	onMount(() => {
+		if (!browser) initApiKeyFromStorage(api);
 		api.setOnUnauthorized(() => setUnauthorized(true));
 	});
 

@@ -45,7 +45,7 @@ from sandkasten import SandboxClient, Session
 SANDKASTEN_URL = "http://localhost:8080"
 SANDKASTEN_API_KEY = "sk-sandbox-quickstart"
 SESSION_DB = "conversation_history.db"
-MAX_TURNS = 50
+MAX_TURNS = 150
 # Persistent workspace ID: files survive session destruction. Set workspace.enabled: true in daemon config.
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "enhanced-agent-default")
 
@@ -129,7 +129,7 @@ async def read_file(path: str) -> str:
     #   - VERTEXAI_LOCATION: Optional, defaults to us-central1
 # os.environ["VERTEXAI_PROJECT"] = "sandkasten-447013"
 os.environ["VERTEXAI_LOCATION"] = "global"
-model = LitellmModel("vertex_ai/gemini-3-flash-preview")
+# model = LitellmModel("vertex_ai/gemini-3-flash-preview")
 agent = Agent(
     name="coding-assistant",
     instructions="""You are a helpful coding assistant with access to a Linux sandbox.
@@ -160,7 +160,7 @@ Always:
 5. Use pre-installed packages when possible to save time
 """,
     tools=[exec, write_file, read_file],
-    model=model,
+    model="gpt-5-mini",
 )
 
 

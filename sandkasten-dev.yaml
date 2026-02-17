@@ -1,6 +1,7 @@
 listen: "0.0.0.0:8080"
 api_key: "sk-sandbox-quickstart"
 db_path: "./sandkasten.db"
+playground_config_path: "./sandkasten-playground-config.json"
 session_ttl_seconds: 1800
 
 workspace:

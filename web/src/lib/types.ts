@@ -35,6 +35,11 @@ export interface Workspace {
 	labels?: Record<string, string>;
 }
 
+export interface WorkspaceFileEntry {
+	name: string;
+	is_dir: boolean;
+}
+
 export interface StatusResponse {
 	total_sessions: number;
 	active_sessions: number;
@@ -57,6 +62,17 @@ export interface ImageStatus {
 export interface ConfigResponse {
 	content: string;
 	path: string;
+}
+
+/** Response from GET /api/playground/config (provider + keys from backend). Frontend stores keys in memory only. */
+export interface PlaygroundConfigResponse {
+	provider?: string;
+	model?: string;
+	openaiApiKey?: string;
+	googleApiKey?: string;
+	googleVertexApiKey?: string;
+	vertexProject?: string;
+	vertexLocation?: string;
 }
 
 export interface CreateSessionOpts {

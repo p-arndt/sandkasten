@@ -6,11 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-units"
 
 	"github.com/p-arndt/sandkasten/internal/config"
@@ -100,7 +101,7 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateOpts) (string, 
 				Type:   mount.TypeTmpfs,
 				Target: "/tmp",
 				TmpfsOptions: &mount.TmpfsOptions{
-					SizeBytes: 256 * units.MiB,
+					SizeBytes: 512 * units.MiB,
 				},
 			},
 			{
@@ -108,6 +109,14 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateOpts) (string, 
 				Target: "/run",
 				TmpfsOptions: &mount.TmpfsOptions{
 					SizeBytes: 16 * units.MiB,
+				},
+			},
+			// Writable cache dir for sandbox user (root fs may be read-only)
+			{
+				Type:   mount.TypeTmpfs,
+				Target: "/home/sandbox/.cache",
+				TmpfsOptions: &mount.TmpfsOptions{
+					SizeBytes: 128 * units.MiB,
 				},
 			},
 		},
@@ -163,12 +172,13 @@ func (c *Client) ExecRunner(ctx context.Context, containerID string, req protoco
 	}
 	defer attachResp.Close()
 
-	output, err := io.ReadAll(attachResp.Reader)
-	if err != nil {
+	// Demultiplex Docker's stdout/stderr stream (8-byte headers) so we get raw stdout.
+	var stdoutBuf, stderrBuf bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdoutBuf, &stderrBuf, attachResp.Reader); err != nil {
 		return nil, fmt.Errorf("exec read: %w", err)
 	}
+	output := stdoutBuf.Bytes()
 
-	// Docker multiplexed stream may have header bytes; find first '{'.
 	line := findJSONLine(output)
 	if line == nil {
 		return nil, fmt.Errorf("no JSON response from runner, got: %s", string(output))

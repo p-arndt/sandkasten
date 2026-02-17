@@ -6,11 +6,13 @@
 	import * as Alert from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import { Switch } from '$lib/components/ui/switch';
+	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { api } from '$lib/api';
 	import { getStoredApiKey, setStoredApiKey } from '$lib/api-key';
-	import { getStoredPlaygroundSettings, setStoredPlaygroundSettings } from '$lib/playground/settings';
+	import { getStoredPlaygroundSettings, setStoredPlaygroundSettings, getEffectivePlaygroundSettings, sessionOnlyKeys } from '$lib/playground/settings';
 	import type { PlaygroundSettings, ProviderId } from '$lib/playground/types';
 	import { PROVIDER_LABELS, DEFAULT_MODELS } from '$lib/playground/types';
 	import { toast } from 'svelte-sonner';
@@ -28,6 +30,10 @@
 
 	// Playground provider/model/keys
 	let playgroundSettings = $state<PlaygroundSettings>(getStoredPlaygroundSettings());
+	let loadingPlaygroundConfig = $state(false);
+	let loadPlaygroundConfigError = $state('');
+	let savingPlaygroundToBackend = $state(false);
+	let savePlaygroundToBackendError = $state('');
 
 	async function loadConfig() {
 		loading = true;
@@ -95,6 +101,15 @@
 
 	function savePlaygroundSettings() {
 		setStoredPlaygroundSettings(playgroundSettings);
+		if (!playgroundSettings.persistProviderKeys) {
+			sessionOnlyKeys.set({
+				openaiApiKey: playgroundSettings.openaiApiKey || undefined,
+				googleApiKey: playgroundSettings.googleApiKey || undefined,
+				googleVertexApiKey: playgroundSettings.googleVertexApiKey || undefined
+			});
+		} else {
+			sessionOnlyKeys.set({});
+		}
 		toast.success('Playground settings saved');
 	}
 
@@ -104,6 +119,71 @@
 			provider,
 			model: playgroundSettings.model?.trim() || DEFAULT_MODELS[provider]
 		};
+	}
+
+	async function loadPlaygroundConfigFromBackend() {
+		loadPlaygroundConfigError = '';
+		savePlaygroundToBackendError = '';
+		loadingPlaygroundConfig = true;
+		try {
+			const res = await api.getPlaygroundConfig();
+			const provider = (res.provider as ProviderId) || 'openai';
+			const model = res.model?.trim() || DEFAULT_MODELS[provider];
+			playgroundSettings = {
+				...playgroundSettings,
+				provider,
+				model,
+				vertexProject: res.vertexProject ?? playgroundSettings.vertexProject,
+				vertexLocation: res.vertexLocation ?? playgroundSettings.vertexLocation,
+				openaiApiKey: '',
+				googleApiKey: '',
+				googleVertexApiKey: ''
+			};
+			setStoredPlaygroundSettings(playgroundSettings);
+			sessionOnlyKeys.set({
+				openaiApiKey: res.openaiApiKey || undefined,
+				googleApiKey: res.googleApiKey || undefined,
+				googleVertexApiKey: res.googleVertexApiKey || undefined
+			});
+			toast.success('Provider keys loaded from backend', {
+				description: 'Keys are in memory only. Use Playground now.'
+			});
+		} catch (err) {
+			loadPlaygroundConfigError = err instanceof Error ? err.message : 'Failed to load';
+			toast.error('Failed to load from backend', {
+				description: loadPlaygroundConfigError
+			});
+		} finally {
+			loadingPlaygroundConfig = false;
+		}
+	}
+
+	async function savePlaygroundConfigToBackend() {
+		savePlaygroundToBackendError = '';
+		loadPlaygroundConfigError = '';
+		savingPlaygroundToBackend = true;
+		try {
+			const effective = getEffectivePlaygroundSettings(playgroundSettings, $sessionOnlyKeys);
+			await api.savePlaygroundConfig({
+				provider: effective.provider,
+				model: effective.model,
+				openaiApiKey: effective.openaiApiKey,
+				googleApiKey: effective.googleApiKey,
+				googleVertexApiKey: effective.googleVertexApiKey,
+				vertexProject: effective.vertexProject,
+				vertexLocation: effective.vertexLocation
+			});
+			toast.success('Playground config saved to backend', {
+				description: 'Stored in JSON file (playground_config_path).'
+			});
+		} catch (err) {
+			savePlaygroundToBackendError = err instanceof Error ? err.message : 'Failed to save';
+			toast.error('Failed to save to backend', {
+				description: savePlaygroundToBackendError
+			});
+		} finally {
+			savingPlaygroundToBackend = false;
+		}
 	}
 
 	onMount(() => {
@@ -160,10 +240,25 @@
 				Playground (model provider)
 			</Card.Title>
 			<Card.Description>
-				Provider and API key for the Playground coding agent. Choose OpenAI, Google (Gemini), or Google Vertex AI.
+				Provider and API key for the Playground coding agent. Choose OpenAI, Google (Gemini), or Google Vertex AI. Or load keys from the backend (daemon reads /config/config.json); keys are kept in memory only.
 			</Card.Description>
 		</Card.Header>
 		<Card.Content class="space-y-4">
+			<div class="flex flex-col gap-3 rounded-lg border p-4">
+				<p class="font-medium">Backend config file</p>
+				<p class="text-sm text-muted-foreground">Daemon reads/writes a JSON file (playground_config_path). Load fills keys in memory only; Save writes current provider and API keys to the file. File is created if missing.</p>
+				<div class="flex flex-wrap items-center gap-2">
+					<Button variant="outline" onclick={loadPlaygroundConfigFromBackend} disabled={loadingPlaygroundConfig}>
+						{loadingPlaygroundConfig ? 'Loading…' : 'Load from backend'}
+					</Button>
+					<Button variant="outline" onclick={savePlaygroundConfigToBackend} disabled={savingPlaygroundToBackend}>
+						{savingPlaygroundToBackend ? 'Saving…' : 'Save to backend'}
+					</Button>
+				</div>
+				{#if loadPlaygroundConfigError || savePlaygroundToBackendError}
+					<p class="text-sm text-destructive">{loadPlaygroundConfigError || savePlaygroundToBackendError}</p>
+				{/if}
+			</div>
 			<div class="flex flex-wrap items-center gap-4">
 				<div>
 					<label for="pg-provider" class="mb-1 block text-sm font-medium">Provider</label>
@@ -248,6 +343,55 @@
 					<p class="text-xs text-muted-foreground">Express mode: API key only, leave project empty. Project mode: set project + location and paste service account JSON in the key field.</p>
 				</div>
 			{/if}
+			<div class="flex items-center justify-between rounded-lg border p-4">
+				<div class="space-y-0.5">
+					<Label for="pg-persist-keys" class="text-base">Save API keys in browser</Label>
+					<p class="text-sm text-muted-foreground">When off, keys are kept only in memory until you leave the page. More secure; you re-enter keys after refresh.</p>
+				</div>
+				<Switch id="pg-persist-keys" bind:checked={playgroundSettings.persistProviderKeys} />
+			</div>
+			<div class="rounded-lg border p-4 space-y-4">
+				<h4 class="font-medium">Session options</h4>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div>
+						<label for="pg-session-image" class="mb-1 block text-sm font-medium">Image</label>
+						<Input
+							id="pg-session-image"
+							bind:value={playgroundSettings.sessionImage}
+							placeholder="sandbox-runtime:python"
+							class="font-mono"
+						/>
+					</div>
+					<div>
+						<label for="pg-session-ttl" class="mb-1 block text-sm font-medium">TTL (seconds)</label>
+						<Input
+							id="pg-session-ttl"
+							type="number"
+							min="60"
+							bind:value={playgroundSettings.sessionTtlSeconds}
+							class="font-mono"
+						/>
+					</div>
+				</div>
+				<div class="flex items-center justify-between rounded-md border p-3">
+					<div class="space-y-0.5">
+						<Label for="pg-workspace-enabled" class="text-sm">Use persistent workspace</Label>
+						<p class="text-xs text-muted-foreground">Files survive session end. Requires daemon <code class="rounded bg-muted px-1">workspace.enabled: true</code>.</p>
+					</div>
+					<Switch id="pg-workspace-enabled" bind:checked={playgroundSettings.workspaceEnabled} />
+				</div>
+				{#if playgroundSettings.workspaceEnabled}
+					<div>
+						<label for="pg-workspace-id" class="mb-1 block text-sm font-medium">Workspace ID</label>
+						<Input
+							id="pg-workspace-id"
+							bind:value={playgroundSettings.workspaceId}
+							placeholder="e.g. playground-default"
+							class="font-mono max-w-md"
+						/>
+					</div>
+				{/if}
+			</div>
 			<Button onclick={savePlaygroundSettings}>
 				<Save class="mr-2 h-4 w-4" />
 				Save Playground settings

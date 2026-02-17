@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/filters"
@@ -18,10 +19,10 @@ type Manager struct {
 
 // Workspace represents a persistent storage volume.
 type Workspace struct {
-	ID        string
-	CreatedAt time.Time
-	SizeMB    int64
-	Labels    map[string]string
+	ID        string            `json:"id"`
+	CreatedAt time.Time         `json:"created_at"`
+	SizeMB    int64             `json:"size_mb"`
+	Labels    map[string]string `json:"labels,omitempty"`
 }
 
 func NewManager(dockerClient *client.Client) *Manager {
@@ -70,8 +71,12 @@ func (m *Manager) List(ctx context.Context) ([]*Workspace, error) {
 
 	workspaces := make([]*Workspace, 0, len(vols.Volumes))
 	for _, v := range vols.Volumes {
+		shortID := strings.TrimPrefix(v.Name, protocol.WorkspaceVolumePrefix)
+		if shortID == "" {
+			shortID = v.Name
+		}
 		ws := &Workspace{
-			ID:     v.Name,
+			ID:     shortID,
 			Labels: v.Labels,
 		}
 

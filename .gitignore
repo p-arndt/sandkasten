@@ -1,3 +1,7 @@
 .task
 bin/
 **/*.pyc
+*.db*
+*.db
+sandkasten-playground-config.json
+images/runner

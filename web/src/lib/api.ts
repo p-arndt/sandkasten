@@ -4,8 +4,10 @@ import type {
 	SessionInfo,
 	ExecResult,
 	Workspace,
+	WorkspaceFileEntry,
 	StatusResponse,
 	ConfigResponse,
+	PlaygroundConfigResponse,
 	CreateSessionOpts,
 	ExecOpts,
 	WriteFileOpts,
@@ -15,13 +17,17 @@ import type {
 
 type UnauthorizedCallback = () => void;
 
-class SandkastenAPI {
+export class SandkastenAPI {
 	private baseURL: string;
 	private apiKey: string | null = null;
 	private onUnauthorized: UnauthorizedCallback | null = null;
 
 	constructor(baseURL = '') {
 		this.baseURL = baseURL;
+	}
+
+	getBaseURL(): string {
+		return this.baseURL;
 	}
 
 	setAPIKey(key: string | null) {
@@ -142,9 +148,52 @@ class SandkastenAPI {
 		});
 	}
 
+	async getWorkspaceFiles(workspaceId: string, path = ''): Promise<{ entries: WorkspaceFileEntry[] }> {
+		const params = path ? new URLSearchParams({ path }) : '';
+		const q = params ? `?${params}` : '';
+		return this.request<{ entries: WorkspaceFileEntry[] }>(
+			`/v1/workspaces/${encodeURIComponent(workspaceId)}/fs${q}`
+		);
+	}
+
+	async readWorkspaceFile(
+		workspaceId: string,
+		path: string,
+		maxBytes?: number
+	): Promise<{ path: string; content_base64: string; truncated: boolean }> {
+		const params = new URLSearchParams({ path });
+		if (maxBytes !== undefined) {
+			params.set('max_bytes', maxBytes.toString());
+		}
+		return this.request<{ path: string; content_base64: string; truncated: boolean }>(
+			`/v1/workspaces/${encodeURIComponent(workspaceId)}/fs/read?${params}`
+		);
+	}
+
 	// Configuration
 	async getConfig(): Promise<ConfigResponse> {
 		return this.request<ConfigResponse>('/api/config');
+	}
+
+	/** Get playground provider config and API keys from backend. Keys are stored on server; frontend keeps in memory only. */
+	async getPlaygroundConfig(): Promise<PlaygroundConfigResponse> {
+		return this.request<PlaygroundConfigResponse>('/api/playground/config');
+	}
+
+	/** Save playground config (provider, model, API keys) to backend JSON file. Creates file if missing. */
+	async savePlaygroundConfig(data: PlaygroundConfigResponse): Promise<{ success: boolean }> {
+		return this.request<{ success: boolean }>('/api/playground/config', {
+			method: 'PUT',
+			body: JSON.stringify({
+				provider: data.provider,
+				model: data.model,
+				openaiApiKey: data.openaiApiKey,
+				googleApiKey: data.googleApiKey,
+				googleVertexApiKey: data.googleVertexApiKey,
+				vertexProject: data.vertexProject,
+				vertexLocation: data.vertexLocation
+			})
+		});
 	}
 
 	async saveConfig(content: string): Promise<{ success: boolean }> {
@@ -172,3 +221,10 @@ class SandkastenAPI {
 
 // Export singleton instance
 export const api = new SandkastenAPI();
+
+/** Create a Sandkasten API client with base URL and API key (e.g. for server-side use). */
+export function createSandkastenAPI(baseURL: string, apiKey: string | null): SandkastenAPI {
+	const client = new SandkastenAPI(baseURL);
+	client.setAPIKey(apiKey);
+	return client;
+}

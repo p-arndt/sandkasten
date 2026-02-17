@@ -1,22 +1,41 @@
 /**
  * Consume OpenAI Agents SDK stream and yield normalized events for the UI.
+ * Matches event shape from @openai/agents (run_item_stream_event with name/item, item.rawItem or item.raw_item).
  */
 
 import type { StreamEventKind } from './types';
 
 type StreamEvent = {
 	type: string;
-	item?: { type?: string; id?: string; name?: string; arguments?: string; output?: unknown; raw_item?: { id?: string; name?: string; arguments?: string } };
-	data?: { type?: string; delta?: string };
 	name?: string;
+	item?: {
+		type?: string;
+		id?: string;
+		name?: string;
+		arguments?: string;
+		output?: unknown;
+		raw_item?: { id?: string; name?: string; arguments?: string; call_id?: string };
+		rawItem?: { id?: string; name?: string; arguments?: string; callId?: string };
+	};
+	data?: { type?: string; delta?: string };
 };
 
 function getItemFields(item: StreamEvent['item']) {
-	const raw = item?.raw_item ?? item;
+	// SDK may use camelCase (rawItem, callId) or snake_case (raw_item, call_id)
+	const raw = item?.rawItem ?? item?.raw_item ?? item;
+	const rawObj = raw as { callId?: string; call_id?: string; id?: string; name?: string; arguments?: string } | undefined;
+	const itemObj = item as { call_id?: string; tool_call_id?: string; id?: string; name?: string; arguments?: string; output?: unknown } | undefined;
+	const id =
+		rawObj?.callId ??
+		rawObj?.call_id ??
+		rawObj?.id ??
+		itemObj?.call_id ??
+		itemObj?.tool_call_id ??
+		itemObj?.id;
 	return {
-		id: raw?.id ?? item?.id,
-		name: raw?.name ?? item?.name,
-		arguments: raw?.arguments ?? item?.arguments,
+		id,
+		name: rawObj?.name ?? itemObj?.name,
+		arguments: rawObj?.arguments ?? itemObj?.arguments,
 		output: item?.output
 	};
 }
@@ -46,6 +65,8 @@ export async function consumeAgentStream(
 					itemType === 'function_call_result_item';
 
 				if (isToolCall && !isToolOutput) {
+					// Only emit when we have a stable id so tool_result can match via toolCallMap
+					const stableId = id ?? `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 					let args: Record<string, unknown> = {};
 					try {
 						if (typeof argsStr === 'string') args = JSON.parse(argsStr) as Record<string, unknown>;
@@ -54,8 +75,8 @@ export async function consumeAgentStream(
 					}
 					onEvent({
 						type: 'tool_call',
-						id: id ?? `tc-${Date.now()}`,
-						name: name ?? 'unknown',
+						id: stableId,
+						name: name ?? (args?.cmd ? 'exec' : args?.path ? 'read_file' : 'tool'),
 						args
 					});
 				} else if (isToolOutput || output !== undefined) {

@@ -28,15 +28,16 @@ type WorkspaceConfig struct {
 }
 
 type Config struct {
-	Listen            string          `yaml:"listen"`
-	APIKey            string          `yaml:"api_key"`
-	DefaultImage      string          `yaml:"default_image"`
-	AllowedImages     []string        `yaml:"allowed_images"`
-	DBPath            string          `yaml:"db_path"`
-	SessionTTLSeconds int             `yaml:"session_ttl_seconds"`
-	Defaults          Defaults        `yaml:"defaults"`
-	Pool              PoolConfig      `yaml:"pool"`
-	Workspace         WorkspaceConfig `yaml:"workspace"`
+	Listen                 string          `yaml:"listen"`
+	APIKey                 string          `yaml:"api_key"`
+	DefaultImage           string          `yaml:"default_image"`
+	AllowedImages          []string        `yaml:"allowed_images"`
+	DBPath                 string          `yaml:"db_path"`
+	SessionTTLSeconds      int             `yaml:"session_ttl_seconds"`
+	PlaygroundConfigPath   string          `yaml:"playground_config_path"`
+	Defaults               Defaults        `yaml:"defaults"`
+	Pool                   PoolConfig      `yaml:"pool"`
+	Workspace              WorkspaceConfig `yaml:"workspace"`
 }
 
 func Load(yamlPath string) (*Config, error) {
@@ -127,5 +128,8 @@ func applyEnvOverrides(cfg *Config) {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Defaults.ReadonlyRootfs = b
 		}
+	}
+	if v := os.Getenv("SANDKASTEN_PLAYGROUND_CONFIG_PATH"); v != "" {
+		cfg.PlaygroundConfigPath = v
 	}
 }

@@ -54,10 +54,15 @@ func buildWrappedCommand(beginMarker, endMarker, cmd string) string {
 	)
 }
 
+// endSentinelLine is the real end line we print (newline + marker); the PTY also
+// echoes the printf command line, so we must look for this to avoid matching the echo.
+func endSentinelLine(endMarker string) string { return "\n" + endMarker }
+
 // waitForCompletion polls for command output until end sentinel or timeout.
 func (s *server) waitForCompletion(requestID, beginMarker, endMarker string, timeout time.Duration, start time.Time) protocol.Response {
 	deadline := time.After(timeout)
 	var accumulated []byte
+	endLine := endSentinelLine(endMarker)
 
 	for {
 		select {
@@ -71,7 +76,7 @@ func (s *server) waitForCompletion(requestID, beginMarker, endMarker string, tim
 			}
 
 			full := string(accumulated)
-			if idx := strings.Index(full, endMarker); idx >= 0 {
+			if idx := strings.Index(full, endLine); idx >= 0 {
 				return buildExecResponse(requestID, full, beginMarker, endMarker, start)
 			}
 
@@ -87,6 +92,8 @@ func (s *server) waitForCompletion(requestID, beginMarker, endMarker string, tim
 func buildExecResponse(requestID, full, beginMarker, endMarker string, start time.Time) protocol.Response {
 	exitCode, cwd := parseEndSentinel(full, endMarker)
 	output := extractOutput(full, beginMarker, endMarker)
+	output = removeSentinelLines(output)
+	output = stripANSI(output)
 	truncated := truncateOutput(&output)
 
 	return protocol.Response{
@@ -105,43 +112,141 @@ func parseEndSentinel(full, endMarker string) (exitCode int, cwd string) {
 	exitCode = 0
 	cwd = "/workspace"
 
-	idx := strings.Index(full, endMarker)
+	// Find the real sentinel line (printf output), not the echoed command
+	idx := strings.Index(full, endSentinelLine(endMarker))
 	if idx < 0 {
 		return
 	}
-
-	endLine := full[idx:]
+	// Line is "\n" + endMarker + ":" + exitCode + ":" + cwd; take the full line
+	endLine := full[idx+1:]
 	if newlineIdx := strings.Index(endLine, "\n"); newlineIdx >= 0 {
 		endLine = endLine[:newlineIdx]
 	}
+	endLine = strings.TrimRight(endLine, "\r")
 
 	// Parse: __SANDKASTEN_END__:<id>:<exit_code>:<cwd>
 	parts := strings.SplitN(endLine, ":", 5)
-	if len(parts) >= 4 {
-		fmt.Sscanf(parts[3], "%d", &exitCode)
+	if len(parts) >= 3 {
+		fmt.Sscanf(parts[2], "%d", &exitCode)
 	}
-	if len(parts) >= 5 {
-		cwd = parts[4]
+	if len(parts) >= 4 {
+		cwd = parts[3]
 	}
 
 	return
 }
 
+// removeSentinelLines drops any line containing Sandkasten sentinels (in case they leak into output).
+func removeSentinelLines(s string) string {
+	lines := strings.Split(s, "\n")
+	var out []string
+	for _, line := range lines {
+		if strings.Contains(line, protocol.SentinelBegin) || strings.Contains(line, protocol.SentinelEnd) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.TrimRight(strings.Join(out, "\n"), "\n")
+}
+
+// stripANSI removes ANSI escape sequences (CSI, OSC, DCS, etc.) so output is plain text.
+// Handles ESC (0x1b) and the single-byte CSI introducer 0x9b.
+func stripANSI(s string) string {
+	const (
+		esc = '\x1b'
+		csi = '\x9b' // single-byte CSI introducer (equivalent to ESC [)
+	)
+	var b strings.Builder
+	b.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] != esc && s[i] != csi {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if s[i] == csi {
+			// Single-byte CSI: consume 0x9b then same as CSI sequence
+			i++
+			for i < len(s) && s[i] >= 0x20 && s[i] <= 0x3f {
+				i++
+			}
+			if i < len(s) && s[i] >= 0x40 && s[i] <= 0x7e {
+				i++
+			}
+			continue
+		}
+		// ESC
+		i++
+		if i >= len(s) {
+			break
+		}
+		switch s[i] {
+		case '[':
+			// CSI: ESC [ ... intermediate (0x20-0x2f) and parameters (0x30-0x3f) ... final (0x40-0x7e)
+			i++
+			for i < len(s) && s[i] >= 0x20 && s[i] <= 0x3f {
+				i++
+			}
+			if i < len(s) && s[i] >= 0x40 && s[i] <= 0x7e {
+				i++
+			}
+		case ']':
+			// OSC: ESC ] ... BEL (0x07) or ST (ESC \)
+			i++
+			for i < len(s) {
+				if s[i] == '\x07' {
+					i++
+					break
+				}
+				if i+1 < len(s) && s[i] == esc && s[i+1] == '\\' {
+					i += 2
+					break
+				}
+				i++
+			}
+		case 'P', 'X', '^', '_':
+			// DCS, SOS, PM, APC: skip until ST (ESC \)
+			i++
+			for i+1 < len(s) {
+				if s[i] == esc && s[i+1] == '\\' {
+					i += 2
+					break
+				}
+				i++
+			}
+		default:
+			if s[i] >= 0x40 && s[i] <= 0x5f {
+				i++
+			}
+		}
+	}
+	return b.String()
+}
+
 // extractOutput extracts command output between begin and end markers.
+// We look for the real sentinel lines (the printf output), not the echoed command
+// lines, so that "printf '...'" never appears in the returned output.
 func extractOutput(full, beginMarker, endMarker string) string {
 	output := full
 
-	// Skip begin marker line
-	if beginIdx := strings.Index(output, beginMarker); beginIdx >= 0 {
-		afterBegin := output[beginIdx+len(beginMarker):]
-		if nlIdx := strings.Index(afterBegin, "\n"); nlIdx >= 0 {
-			afterBegin = afterBegin[nlIdx+1:]
+	// Skip to after the real begin marker line (printf output is marker then \n)
+	beginLine := "\n" + beginMarker
+	if idx := strings.Index(output, beginLine); idx >= 0 {
+		output = output[idx+len(beginLine):]
+		if nl := strings.Index(output, "\n"); nl >= 0 {
+			output = output[nl+1:]
 		}
-		output = afterBegin
+	} else if strings.HasPrefix(output, beginMarker) {
+		output = output[len(beginMarker):]
+		if nl := strings.Index(output, "\n"); nl >= 0 {
+			output = output[nl+1:]
+		}
 	}
 
-	// Trim at end marker
-	if endIdx := strings.Index(output, endMarker); endIdx >= 0 {
+	// Trim at the real end sentinel line (newline + marker), not the echoed "printf '\n..."
+	endLine := endSentinelLine(endMarker)
+	if endIdx := strings.Index(output, endLine); endIdx >= 0 {
 		output = output[:endIdx]
 	}
 

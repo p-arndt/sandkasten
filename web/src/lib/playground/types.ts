@@ -10,6 +10,14 @@ export interface PlaygroundSettings {
 	googleVertexApiKey: string;
 	vertexProject: string;
 	vertexLocation: string;
+	/** Don't save provider API keys to localStorage; use only in memory until page unload. */
+	persistProviderKeys: boolean;
+	/** Sandbox session options */
+	sessionImage: string;
+	sessionTtlSeconds: number;
+	/** Use a persistent workspace (files survive session destroy). Requires daemon workspace.enabled. */
+	workspaceEnabled: boolean;
+	workspaceId: string;
 }
 
 export const DEFAULT_PLAYGROUND_SETTINGS: PlaygroundSettings = {
@@ -19,7 +27,12 @@ export const DEFAULT_PLAYGROUND_SETTINGS: PlaygroundSettings = {
 	googleApiKey: '',
 	googleVertexApiKey: '',
 	vertexProject: '',
-	vertexLocation: 'us-central1'
+	vertexLocation: 'us-central1',
+	persistProviderKeys: true,
+	sessionImage: 'sandbox-runtime:python',
+	sessionTtlSeconds: 3600,
+	workspaceEnabled: false,
+	workspaceId: ''
 };
 
 export const PROVIDER_LABELS: Record<ProviderId, string> = {
@@ -34,8 +47,17 @@ export const DEFAULT_MODELS: Record<ProviderId, string> = {
 	'google-vertex': 'gemini-2.0-flash'
 };
 
+/** Optional: when running agent on the server, pass a Sandkasten client for tool calls. */
+export interface SandkastenClientLike {
+	execCommand(id: string, opts: { cmd: string; timeout_ms?: number }): Promise<{ exit_code: number; cwd: string; output: string; truncated: boolean }>;
+	writeFile(sessionId: string, opts: { path: string; text?: string }): Promise<{ ok: boolean }>;
+	readFile(sessionId: string, path: string, maxBytes?: number): Promise<{ path: string; content_base64: string; truncated: boolean }>;
+}
+
 export interface PlaygroundContext {
 	sessionId: string;
+	/** When set (e.g. server-side), tools use this client instead of the global api. */
+	sandkastenClient?: SandkastenClientLike;
 }
 
 export type ChatRole = 'user' | 'assistant';

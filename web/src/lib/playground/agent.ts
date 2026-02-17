@@ -7,13 +7,17 @@
 import { Agent, run, tool } from '@openai/agents';
 import { z } from 'zod';
 import { api } from '$lib/api';
-import type { PlaygroundContext, PlaygroundSettings } from './types';
+import type { PlaygroundContext, PlaygroundSettings, SandkastenClientLike } from './types';
 import type { RunContext } from '@openai/agents';
 import { getModel } from './providers';
 import { aisdk } from '@openai/agents-extensions';
 
 function getSessionId(context: RunContext<PlaygroundContext> | undefined): string | null {
 	return context?.context?.sessionId ?? null;
+}
+
+function getClient(context: RunContext<PlaygroundContext> | undefined): SandkastenClientLike {
+	return context?.context?.sandkastenClient ?? api;
 }
 
 const execTool = tool({
@@ -26,8 +30,9 @@ const execTool = tool({
 	async execute(args, runContext) {
 		const sessionId = getSessionId(runContext);
 		if (!sessionId) return 'Error: No sandbox session. Start a session in the playground first.';
+		const client = getClient(runContext);
 		try {
-			const result = await api.execCommand(sessionId, {
+			const result = await client.execCommand(sessionId, {
 				cmd: args.cmd,
 				timeout_ms: args.timeout_ms
 			});
@@ -53,8 +58,9 @@ const writeFileTool = tool({
 	async execute(args, runContext) {
 		const sessionId = getSessionId(runContext);
 		if (!sessionId) return 'Error: No sandbox session. Start a session in the playground first.';
+		const client = getClient(runContext);
 		try {
-			await api.writeFile(sessionId, { path: args.path, text: args.content });
+			await client.writeFile(sessionId, { path: args.path, text: args.content });
 			return `wrote ${args.path}`;
 		} catch (e) {
 			return `Error: ${e instanceof Error ? e.message : String(e)}`;
@@ -72,8 +78,9 @@ const readFileTool = tool({
 	async execute(args, runContext) {
 		const sessionId = getSessionId(runContext);
 		if (!sessionId) return 'Error: No sandbox session. Start a session in the playground first.';
+		const client = getClient(runContext);
 		try {
-			const result = await api.readFile(sessionId, args.path, args.max_bytes);
+			const result = await client.readFile(sessionId, args.path, args.max_bytes);
 			const decoder = new TextDecoder();
 			const bytes = Uint8Array.from(
 				atob(result.content_base64),

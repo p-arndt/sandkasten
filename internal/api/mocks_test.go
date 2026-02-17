@@ -77,3 +77,16 @@ func (m *MockSessionService) DeleteWorkspace(ctx context.Context, workspaceID st
 	args := m.Called(ctx, workspaceID)
 	return args.Error(0)
 }
+
+func (m *MockSessionService) ListWorkspaceFiles(ctx context.Context, workspaceID, path string) ([]session.WorkspaceFileEntry, error) {
+	args := m.Called(ctx, workspaceID, path)
+	if e := args.Get(0); e != nil {
+		return e.([]session.WorkspaceFileEntry), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockSessionService) ReadWorkspaceFile(ctx context.Context, workspaceID, path string, maxBytes int) (string, bool, error) {
+	args := m.Called(ctx, workspaceID, path, maxBytes)
+	return args.String(0), args.Bool(1), args.Error(2)
+}

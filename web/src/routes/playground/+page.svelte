@@ -16,16 +16,25 @@
   import { ScrollArea } from "$lib/components/ui/scroll-area";
   import { api } from "$lib/api";
   import { createPlaygroundAgent, run } from "$lib/playground/agent";
-  import { getStoredPlaygroundSettings } from "$lib/playground/settings";
+  import {
+    getStoredPlaygroundSettings,
+    getEffectivePlaygroundSettings,
+    sessionOnlyKeys,
+  } from "$lib/playground/settings";
   import { hasRequiredConfig } from "$lib/playground/providers";
   import type { PlaygroundSettings } from "$lib/playground/types";
-  import { PROVIDER_LABELS } from "$lib/playground/types";
+  import { PROVIDER_LABELS, DEFAULT_PLAYGROUND_SETTINGS } from "$lib/playground/types";
   import AssistantMessage from "$lib/playground/AssistantMessage.svelte";
   import { consumeAgentStream } from "$lib/playground/stream";
   import type { ChatMessage, ToolCallDisplay } from "$lib/playground/types";
   import { toast } from "svelte-sonner";
 
-  const DEFAULT_IMAGE = "sandbox-runtime:python";
+  /** Stored settings (loaded from localStorage in onMount so it's correct in the browser). */
+  let storedSettings = $state<PlaygroundSettings>({ ...DEFAULT_PLAYGROUND_SETTINGS });
+  /** Effective = stored + in-memory session keys when not persisting. */
+  let effectiveSettings = $derived(
+    getEffectivePlaygroundSettings(storedSettings, $sessionOnlyKeys),
+  );
 
   let sessionId = $state<string | null>(null);
   let sessionLoading = $state(false);
@@ -33,7 +42,6 @@
   let inputText = $state("");
   let sending = $state(false);
   let messagesEndEl: HTMLDivElement;
-  let settings = $state<PlaygroundSettings>(getStoredPlaygroundSettings());
   let showSettingsPrompt = $state(false);
 
   function addMessage(
@@ -69,11 +77,20 @@
   async function ensureSession(): Promise<string | null> {
     if (sessionId) return sessionId;
     sessionLoading = true;
+    const opts = {
+      image: effectiveSettings.sessionImage || "sandbox-runtime:python",
+      ttl_seconds: effectiveSettings.sessionTtlSeconds || 3600,
+      ...(effectiveSettings.workspaceEnabled && effectiveSettings.workspaceId?.trim()
+        ? { workspace_id: effectiveSettings.workspaceId.trim() }
+        : {}),
+    };
     try {
-      const session = await api.createSession({ image: DEFAULT_IMAGE });
+      const session = await api.createSession(opts);
       sessionId = session.id;
       toast.success("Sandbox session started", {
-        description: `Session ${session.id.slice(0, 8)}...`,
+        description: session.workspace_id
+          ? `Session ${session.id.slice(0, 8)}… (workspace: ${session.workspace_id.slice(0, 8)}…)`
+          : `Session ${session.id.slice(0, 8)}…`,
       });
       return session.id;
     } catch (err) {
@@ -99,14 +116,66 @@
     sessionId = null;
   }
 
+  function onStreamEvent(assistantMsgId: string, toolCallMap: Map<string, string>) {
+    return (event: import("$lib/playground/types").StreamEventKind) => {
+      if (event.type === "text_delta") {
+        const msg = messages.find((m) => m.id === assistantMsgId);
+        if (msg)
+          updateMessage(assistantMsgId, {
+            content: msg.content + event.delta,
+            streaming: true,
+          });
+      } else if (event.type === "tool_call") {
+        // Deduplicate: same call id can be emitted only once (e.g. from stream chunks)
+        if (toolCallMap.has(event.id)) return;
+        const tcId = `tc-${event.id}-${Date.now()}`;
+        toolCallMap.set(event.id, tcId);
+        const msg = messages.find((m) => m.id === assistantMsgId);
+        const toolCalls = [
+          ...(msg?.toolCalls ?? []),
+          {
+            id: tcId,
+            name: event.name,
+            args: event.args,
+            status: "running" as const,
+          },
+        ];
+        updateMessage(assistantMsgId, { toolCalls, streaming: true });
+      } else if (event.type === "tool_result") {
+        let tcId = toolCallMap.get(event.id);
+        // Fallback: if SDK didn't send matching id, assign to the only running tool call
+        if (!tcId) {
+          const msg = messages.find((m) => m.id === assistantMsgId);
+          const running = msg?.toolCalls?.filter((tc) => tc.status === "running") ?? [];
+          if (running.length === 1) {
+            tcId = running[0].id;
+            toolCallMap.set(event.id, tcId);
+          }
+        }
+        if (tcId)
+          updateToolCall(assistantMsgId, tcId, {
+            output: event.output,
+            status: "done",
+          });
+      } else if (event.type === "done") {
+        updateMessage(assistantMsgId, { streaming: false });
+      } else if (event.type === "error") {
+        updateMessage(assistantMsgId, {
+          content: `Error: ${event.message}`,
+          streaming: false,
+        });
+      }
+    };
+  }
+
   async function sendMessage() {
     const text = inputText.trim();
     if (!text || sending) return;
 
-    if (!hasRequiredConfig(settings)) {
+    if (!hasRequiredConfig(effectiveSettings)) {
       showSettingsPrompt = true;
       toast.error("API key required", {
-        description: "Set provider and API key in Settings.",
+        description: "Set provider and API key in Settings, or load from backend.",
       });
       return;
     }
@@ -126,67 +195,22 @@
     await tick();
     messagesEndEl?.scrollIntoView({ behavior: "smooth" });
 
-    const toolCallMap = new Map<string, string>(); // stream id -> our tool call id
+    const toolCallMap = new Map<string, string>();
 
     try {
-      const agent = await createPlaygroundAgent(settings);
+      const agent = await createPlaygroundAgent(effectiveSettings);
       const streamResult = await run(agent, text, {
         context: { sessionId: sid },
         stream: true,
+		maxTurns: 50,
       });
-
-      // Type: stream is AsyncIterable and has .completed
       const stream = streamResult as AsyncIterable<{
         type: string;
-        item?: {
-          type: string;
-          id?: string;
-          name?: string;
-          arguments?: string;
-          output?: unknown;
-        };
+        item?: { type: string; id?: string; name?: string; arguments?: string; output?: unknown };
         data?: { type?: string; delta?: string };
         name?: string;
       }> & { completed?: Promise<unknown> };
-
-      await consumeAgentStream(stream, (event) => {
-        if (event.type === "text_delta") {
-          const msg = messages.find((m) => m.id === assistantMsgId);
-          if (msg)
-            updateMessage(assistantMsgId, {
-              content: msg.content + event.delta,
-              streaming: true,
-            });
-        } else if (event.type === "tool_call") {
-          const tcId = `tc-${event.id}-${Date.now()}`;
-          toolCallMap.set(event.id, tcId);
-          const msg = messages.find((m) => m.id === assistantMsgId);
-          const toolCalls = [
-            ...(msg?.toolCalls ?? []),
-            {
-              id: tcId,
-              name: event.name,
-              args: event.args,
-              status: "running" as const,
-            },
-          ];
-          updateMessage(assistantMsgId, { toolCalls, streaming: true });
-        } else if (event.type === "tool_result") {
-          const tcId = toolCallMap.get(event.id);
-          if (tcId)
-            updateToolCall(assistantMsgId, tcId, {
-              output: event.output,
-              status: "done",
-            });
-        } else if (event.type === "done") {
-          updateMessage(assistantMsgId, { streaming: false });
-        } else if (event.type === "error") {
-          updateMessage(assistantMsgId, {
-            content: `Error: ${event.message}`,
-            streaming: false,
-          });
-        }
-      });
+      await consumeAgentStream(stream, onStreamEvent(assistantMsgId, toolCallMap));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       updateMessage(assistantMsgId, {
@@ -202,7 +226,7 @@
   }
 
   onMount(() => {
-    settings = getStoredPlaygroundSettings();
+    storedSettings = getStoredPlaygroundSettings();
   });
 </script>
 
@@ -215,10 +239,9 @@
       </p>
     </div>
     <div class="flex items-center gap-2">
-      <Badge variant="outline" class="text-xs"
-        >{PROVIDER_LABELS[settings.provider]} · {settings.model ||
-          "default"}</Badge
-      >
+      <Badge variant="outline" class="text-xs">
+        {PROVIDER_LABELS[effectiveSettings.provider]} · {effectiveSettings.model || "default"}
+      </Badge>
       {#if sessionId}
         <Badge variant="secondary" class="font-mono text-xs"
           >{sessionId.slice(0, 12)}…</Badge
@@ -245,17 +268,16 @@
     </div>
   </div>
 
-  {#if showSettingsPrompt || !hasRequiredConfig(settings)}
+  {#if showSettingsPrompt || !hasRequiredConfig(effectiveSettings)}
     <Card.Root class="shrink-0 border-amber-200 dark:border-amber-800">
       <Card.Header class="py-3">
         <Card.Title class="flex items-center gap-2 text-base">
           <Settings class="h-4 w-4" />
           Playground provider
         </Card.Title>
-        <Card.Description
-          >Set provider and API key in Settings to use the agent (OpenAI,
-          Google, or Google Vertex).</Card.Description
-        >
+        <Card.Description>
+          Set provider and API key in Settings, or load keys from backend (kept in memory).
+        </Card.Description>
       </Card.Header>
       <Card.Content>
         <a
@@ -318,7 +340,7 @@
           </div>
         {/each}
       {/if}
-      <div bind:this={messagesEndEl} />
+      <div bind:this={messagesEndEl}></div>
     </div>
   </ScrollArea>
 
