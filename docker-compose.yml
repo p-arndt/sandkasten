@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  sandkasten:
+    image: sandkasten:local
+    container_name: sandkasten
+    restart: unless-stopped
+
+    # Required for namespace/cgroup/overlayfs operations
+    privileged: true
+    cgroup: host
+    network_mode: host
+
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - /var/lib/sandkasten:/var/lib/sandkasten
+      - /etc/sandkasten/sandkasten.yaml:/etc/sandkasten/sandkasten.yaml:ro
+
+    environment:
+      SANDKASTEN_API_KEY: sk-test
+
+    command: ["/bin/sandkasten", "--config", "/etc/sandkasten/sandkasten.yaml"]
