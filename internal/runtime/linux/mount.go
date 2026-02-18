@@ -106,6 +106,9 @@ func SetupMinimalDev(mnt string) error {
 				return fmt.Errorf("mknod %s: %w", d.path, err)
 			}
 		}
+		if err := os.Chmod(d.path, os.FileMode(d.mode&0777)); err != nil {
+			return fmt.Errorf("chmod %s: %w", d.path, err)
+		}
 	}
 
 	for _, link := range []struct {

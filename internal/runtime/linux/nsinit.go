@@ -95,6 +95,9 @@ func nsinitMain(cfg NsinitConfig) error {
 		if err := unix.Chown("/run/sandkasten", cfg.UID, cfg.GID); err != nil {
 			return fmt.Errorf("chown /run/sandkasten: %w", err)
 		}
+		if err := ensureSandboxHome(cfg.UID, cfg.GID); err != nil {
+			return err
+		}
 	}
 
 	if cfg.NoNewPrivs {
@@ -165,6 +168,20 @@ func dropCapabilities() error {
 	for _, cap := range caps {
 		if err := unix.Prctl(unix.PR_CAPBSET_DROP, cap, 0, 0, 0); err != nil {
 		}
+	}
+	return nil
+}
+
+func ensureSandboxHome(uid, gid int) error {
+	home := "/home/sandbox"
+	if err := os.MkdirAll(home, 0755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", home, err)
+	}
+	if err := unix.Chown(home, uid, gid); err != nil {
+		return fmt.Errorf("chown %s: %w", home, err)
+	}
+	if err := unix.Chmod(home, 0755); err != nil {
+		return fmt.Errorf("chmod %s: %w", home, err)
 	}
 	return nil
 }
