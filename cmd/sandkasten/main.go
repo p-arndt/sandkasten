@@ -37,13 +37,27 @@ func main() {
 	cfgPath := flag.String("config", "", "path to sandkasten.yaml")
 	flag.Parse()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logLevel := slog.LevelInfo
+	if v := os.Getenv("SANDKASTEN_LOG"); v != "" {
+		switch v {
+		case "debug":
+			logLevel = slog.LevelDebug
+		case "info":
+			logLevel = slog.LevelInfo
+		case "warn":
+			logLevel = slog.LevelWarn
+		case "error":
+			logLevel = slog.LevelError
+		}
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		logger.Error("load config", "error", err)
 		os.Exit(1)
 	}
+	logger.Debug("config loaded", "config_path", *cfgPath, "data_dir", cfg.DataDir, "db_path", cfg.DBPath, "listen", cfg.Listen)
 
 	if cfg.APIKey == "" {
 		logger.Warn("no API key configured — running in open access mode")
@@ -55,8 +69,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close()
+	logger.Debug("store opened", "db_path", cfg.DBPath)
 
-	rt, err := linux.NewDriver(cfg)
+	rt, err := linux.NewDriver(cfg, logger)
 	if err != nil {
 		logger.Error("runtime driver", "error", err)
 		os.Exit(1)
@@ -71,6 +86,7 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("runtime driver OK")
+	logger.Debug("reaper and API server starting")
 
 	mgr := session.NewManager(cfg, st, rt, nil)
 

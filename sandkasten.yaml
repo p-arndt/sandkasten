@@ -6,3 +6,4 @@ defaults:
   cpu_limit: 0      # Disabled
   mem_limit_mb: 0   # Disabled  
   pids_limit: 0     # Disabled
+  network_mode: "bridge"

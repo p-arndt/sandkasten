@@ -53,7 +53,7 @@ func startTestServer(t *testing.T) (string, func()) {
 	st, err := store.New(cfg.DBPath)
 	require.NoError(t, err)
 
-	rt, err := linuxrt.NewDriver(cfg)
+	rt, err := linuxrt.NewDriver(cfg, logger)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())

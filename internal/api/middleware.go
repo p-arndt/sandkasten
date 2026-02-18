@@ -70,3 +70,11 @@ func (s *Server) requestIDMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
+
+func (s *Server) debugLogMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqID, _ := r.Context().Value(requestIDKey).(string)
+		s.logger.Debug("request", "method", r.Method, "path", r.URL.Path, "request_id", reqID)
+		next.ServeHTTP(w, r)
+	})
+}

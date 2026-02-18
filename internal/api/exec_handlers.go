@@ -15,18 +15,16 @@ type execRequest struct {
 
 func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-
 	var req execRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeValidationError(w, "invalid json: "+err.Error(), nil)
 		return
 	}
-
 	if err := validateExecRequest(req); err != nil {
 		writeValidationError(w, err.Error(), nil)
 		return
 	}
-
+	s.logger.Debug("exec", "session_id", id, "cmd", req.Cmd, "timeout_ms", req.TimeoutMs)
 	result, err := s.manager.Exec(r.Context(), id, req.Cmd, req.TimeoutMs)
 	if err != nil {
 		s.logger.Error("exec", "session_id", id, "error", err)
@@ -55,7 +53,7 @@ func (s *Server) handleExecStream(w http.ResponseWriter, r *http.Request) {
 		writeValidationError(w, err.Error(), nil)
 		return
 	}
-
+	s.logger.Debug("exec stream", "session_id", id, "cmd", req.Cmd, "timeout_ms", req.TimeoutMs)
 	flusher := w.(http.Flusher)
 	chunkChan := make(chan session.ExecChunk, 10)
 	errChan := make(chan error, 1)

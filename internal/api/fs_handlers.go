@@ -27,7 +27,7 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content, isBase64 := extractContent(req)
-
+	s.logger.Debug("fs write", "session_id", id, "path", req.Path, "content_len", len(content), "is_base64", isBase64)
 	if err := s.manager.Write(r.Context(), id, req.Path, content, isBase64); err != nil {
 		s.logger.Error("write", "session_id", id, "error", err)
 		writeAPIError(w, err)
@@ -51,7 +51,7 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 		writeValidationError(w, err.Error(), nil)
 		return
 	}
-
+	s.logger.Debug("fs read", "session_id", id, "path", path, "max_bytes", maxBytes)
 	contentBase64, truncated, err := s.manager.Read(r.Context(), id, path, maxBytes)
 	if err != nil {
 		s.logger.Error("read", "session_id", id, "error", err)

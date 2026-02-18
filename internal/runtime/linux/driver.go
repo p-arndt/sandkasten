@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -23,9 +24,10 @@ type Driver struct {
 	cfg      *config.Config
 	dataDir  string
 	imageDir string
+	logger   *slog.Logger
 }
 
-func NewDriver(cfg *config.Config) (*Driver, error) {
+func NewDriver(cfg *config.Config, logger *slog.Logger) (*Driver, error) {
 	if err := DetectCgroupV2(); err != nil {
 		return nil, fmt.Errorf("cgroup v2 check failed: %w", err)
 	}
@@ -34,6 +36,7 @@ func NewDriver(cfg *config.Config) (*Driver, error) {
 		cfg:      cfg,
 		dataDir:  cfg.DataDir,
 		imageDir: filepath.Join(cfg.DataDir, "images"),
+		logger:   logger,
 	}
 
 	dirs := []string{
@@ -60,6 +63,12 @@ func (d *Driver) Ping(ctx context.Context) error {
 }
 
 func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.SessionInfo, error) {
+	if d.logger != nil {
+		d.logger.Debug("runtime create session", "session_id", opts.SessionID, "image", opts.Image, "workspace_id", opts.WorkspaceID)
+	}
+	runnerUID := 1000
+	runnerGID := 1000
+
 	lower := filepath.Join(d.imageDir, opts.Image, "rootfs")
 	if _, err := os.Stat(lower); os.IsNotExist(err) {
 		return nil, fmt.Errorf("image %s not found at %s", opts.Image, lower)
@@ -77,11 +86,20 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		if err := os.MkdirAll(workspaceSrc, 0755); err != nil {
 			return nil, fmt.Errorf("mkdir workspace %s: %w", workspaceSrc, err)
 		}
+		if err := os.Chown(workspaceSrc, runnerUID, runnerGID); err != nil {
+			return nil, fmt.Errorf("chown workspace %s: %w", workspaceSrc, err)
+		}
 	}
 
 	if err := SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runHostDir); err != nil {
 		d.cleanupSessionDir(sessionDir)
 		return nil, fmt.Errorf("setup filesystem: %w", err)
+	}
+
+	if err := os.Chown(runHostDir, runnerUID, runnerGID); err != nil {
+		CleanupMounts(mnt)
+		d.cleanupSessionDir(sessionDir)
+		return nil, fmt.Errorf("chown run dir %s: %w", runHostDir, err)
 	}
 
 	cgConfig := CgroupConfig{
@@ -101,8 +119,8 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		Mnt:         mnt,
 		CgroupPath:  cgPath,
 		RunnerPath:  "/usr/local/bin/runner",
-		UID:         1000,
-		GID:         1000,
+		UID:         runnerUID,
+		GID:         runnerGID,
 		NoNewPrivs:  true,
 		NetworkNone: d.cfg.Defaults.NetworkMode == "none",
 	}
@@ -168,6 +186,9 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		return nil, fmt.Errorf("write state: %w", err)
 	}
 
+	if d.logger != nil {
+		d.logger.Debug("runtime session created", "session_id", opts.SessionID, "init_pid", initPid)
+	}
 	return &runtime.SessionInfo{
 		SessionID:  opts.SessionID,
 		InitPID:    initPid,
@@ -178,6 +199,9 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 }
 
 func (d *Driver) Exec(ctx context.Context, sessionID string, req protocol.Request) (*protocol.Response, error) {
+	if d.logger != nil {
+		d.logger.Debug("runtime exec", "session_id", sessionID, "request_id", req.ID)
+	}
 	runnerSock := filepath.Join(d.dataDir, "sessions", sessionID, protocol.RunDirName, protocol.RunnerSocketName)
 	return d.execViaSocket(runnerSock, req)
 }
@@ -216,6 +240,9 @@ func (d *Driver) execViaSocket(sockPath string, req protocol.Request) (*protocol
 }
 
 func (d *Driver) Destroy(ctx context.Context, sessionID string) error {
+	if d.logger != nil {
+		d.logger.Debug("runtime destroy session", "session_id", sessionID)
+	}
 	sessionDir := filepath.Join(d.dataDir, "sessions", sessionID)
 	statePath := filepath.Join(sessionDir, "state.json")
 

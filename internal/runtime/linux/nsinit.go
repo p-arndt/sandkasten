@@ -81,8 +81,20 @@ func nsinitMain(cfg NsinitConfig) error {
 	if err := os.MkdirAll(devPts, 0755); err != nil {
 		return fmt.Errorf("mkdir /dev/pts: %w", err)
 	}
-	if err := unix.Mount("devpts", devPts, "devpts", 0, ""); err != nil {
+	if err := unix.Mount("devpts", devPts, "devpts", 0, "newinstance,ptmxmode=0666,mode=620,gid=5"); err != nil {
 		return fmt.Errorf("mount devpts: %w", err)
+	}
+
+	if err := os.MkdirAll("/run/sandkasten", 0755); err != nil {
+		return fmt.Errorf("mkdir /run/sandkasten: %w", err)
+	}
+	if err := unix.Chmod("/run", 0755); err != nil {
+		return fmt.Errorf("chmod /run: %w", err)
+	}
+	if cfg.UID > 0 || cfg.GID > 0 {
+		if err := unix.Chown("/run/sandkasten", cfg.UID, cfg.GID); err != nil {
+			return fmt.Errorf("chown /run/sandkasten: %w", err)
+		}
 	}
 
 	if cfg.NoNewPrivs {

@@ -31,7 +31,7 @@ func NewServer(cfg *config.Config, mgr SessionService, st *store.Store, configPa
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.authMiddleware(s.requestIDMiddleware(s.mux))
+	return s.authMiddleware(s.requestIDMiddleware(s.debugLogMiddleware(s.mux)))
 }
 
 func (s *Server) routes() {

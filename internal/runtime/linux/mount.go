@@ -95,7 +95,6 @@ func SetupMinimalDev(mnt string) error {
 		{filepath.Join(devDir, "random"), unix.S_IFCHR | 0666, 1, 8},
 		{filepath.Join(devDir, "urandom"), unix.S_IFCHR | 0666, 1, 9},
 		{filepath.Join(devDir, "tty"), unix.S_IFCHR | 0666, 5, 0},
-		{filepath.Join(devDir, "ptmx"), unix.S_IFCHR | 0666, 5, 2},
 	}
 
 	for _, d := range devices {
@@ -110,6 +109,7 @@ func SetupMinimalDev(mnt string) error {
 	for _, link := range []struct {
 		src, dst string
 	}{
+		{"pts/ptmx", filepath.Join(devDir, "ptmx")},
 		{"/proc/self/fd", filepath.Join(devDir, "fd")},
 		{"/proc/self/fd/0", filepath.Join(devDir, "stdin")},
 		{"/proc/self/fd/1", filepath.Join(devDir, "stdout")},
@@ -120,6 +120,44 @@ func SetupMinimalDev(mnt string) error {
 				return fmt.Errorf("symlink %s: %w", link.dst, err)
 			}
 		}
+	}
+
+	return nil
+}
+
+func BindHostFile(mnt, hostPath, relPath string) error {
+	if _, err := os.Stat(hostPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat host file %s: %w", hostPath, err)
+	}
+
+	dst := filepath.Join(mnt, relPath)
+	if err := MkdirAll(filepath.Dir(dst)); err != nil {
+		return err
+	}
+
+	if fi, err := os.Lstat(dst); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(dst); err != nil {
+				return fmt.Errorf("remove symlink %s: %w", dst, err)
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("lstat %s: %w", dst, err)
+	}
+
+	if _, err := os.Stat(dst); os.IsNotExist(err) {
+		if err := os.WriteFile(dst, []byte{}, 0644); err != nil {
+			return fmt.Errorf("create file %s: %w", dst, err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("stat %s: %w", dst, err)
+	}
+
+	if err := BindMount(hostPath, dst, false); err != nil {
+		return fmt.Errorf("bind file %s -> %s: %w", hostPath, dst, err)
 	}
 
 	return nil
@@ -140,6 +178,13 @@ func SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runHostDir string) e
 	}
 
 	if err := MountOverlay(lower, upper, work, mnt); err != nil {
+		return err
+	}
+
+	if err := BindHostFile(mnt, "/etc/resolv.conf", "etc/resolv.conf"); err != nil {
+		return err
+	}
+	if err := BindHostFile(mnt, "/etc/hosts", "etc/hosts"); err != nil {
 		return err
 	}
 

@@ -25,6 +25,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.logger.Debug("create session request", "image", req.Image, "ttl_seconds", req.TTLSeconds, "workspace_id", req.WorkspaceID)
 	info, err := s.manager.Create(r.Context(), session.CreateOpts{
 		Image:       req.Image,
 		TTLSeconds:  req.TTLSeconds,
@@ -35,12 +36,13 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, err)
 		return
 	}
-
+	s.logger.Debug("session created", "session_id", info.ID, "image", info.Image)
 	writeJSON(w, http.StatusCreated, info)
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	s.logger.Debug("get session", "session_id", id)
 	info, err := s.manager.Get(r.Context(), id)
 	if err != nil {
 		writeAPIError(w, err)
@@ -50,17 +52,19 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("list sessions")
 	sessions, err := s.manager.List(r.Context())
 	if err != nil {
 		writeAPIError(w, err)
 		return
 	}
+	s.logger.Debug("list sessions result", "count", len(sessions))
 	writeJSON(w, http.StatusOK, sessions)
 }
 
 func (s *Server) handleDestroy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-
+	s.logger.Debug("destroy session", "session_id", id)
 	if err := s.manager.Destroy(r.Context(), id); err != nil {
 		s.logger.Error("destroy", "session_id", id, "error", err)
 		writeAPIError(w, err)
