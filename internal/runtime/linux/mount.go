@@ -3,9 +3,11 @@
 package linux
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -132,6 +134,14 @@ func BindHostFile(mnt, hostPath, relPath string) error {
 		}
 		return fmt.Errorf("stat host file %s: %w", hostPath, err)
 	}
+	// Resolve symlinks (e.g. /etc/resolv.conf -> ../run/systemd/resolve/stub-resolv.conf)
+	// so we bind the real file; otherwise the container would see a symlink pointing to a path
+	// that may not exist inside the container and DNS would fail.
+	resolved, err := filepath.EvalSymlinks(hostPath)
+	if err != nil {
+		return fmt.Errorf("resolve host file %s: %w", hostPath, err)
+	}
+	hostPath = resolved
 
 	dst := filepath.Join(mnt, relPath)
 	if err := MkdirAll(filepath.Dir(dst)); err != nil {
@@ -160,6 +170,34 @@ func BindHostFile(mnt, hostPath, relPath string) error {
 		return fmt.Errorf("bind file %s -> %s: %w", hostPath, dst, err)
 	}
 
+	return nil
+}
+
+// EnsureResolvConf ensures mnt/etc/resolv.conf exists and contains at least one nameserver
+// when network is enabled. If the file is missing (host had no resolv.conf), writes a
+// fallback. If it exists (e.g. bind-mounted from host), only ensures we have a nameserver
+// line; does not overwrite bind-mounted host files.
+func EnsureResolvConf(mnt string) error {
+	resolv := filepath.Join(mnt, "etc", "resolv.conf")
+	data, err := os.ReadFile(resolv)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		// File missing — create fallback (BindHostFile skipped because host had no resolv)
+		if err := MkdirAll(filepath.Dir(resolv)); err != nil {
+			return err
+		}
+		return os.WriteFile(resolv, []byte("nameserver 8.8.8.8\nnameserver 1.1.1.1\n"), 0644)
+	}
+	sc := bufio.NewScanner(strings.NewReader(string(data)))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(line, "nameserver ") && len(strings.TrimSpace(line)) > len("nameserver ") {
+			return nil
+		}
+	}
+	// File exists but has no nameserver — do not overwrite (may be bind-mounted from host)
 	return nil
 }
 

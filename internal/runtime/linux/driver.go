@@ -95,6 +95,13 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		d.cleanupSessionDir(sessionDir)
 		return nil, fmt.Errorf("setup filesystem: %w", err)
 	}
+	if d.cfg.Defaults.NetworkMode != "none" {
+		if err := EnsureResolvConf(mnt); err != nil {
+			CleanupMounts(mnt)
+			d.cleanupSessionDir(sessionDir)
+			return nil, fmt.Errorf("ensure resolv.conf: %w", err)
+		}
+	}
 
 	if err := os.Chown(runHostDir, runnerUID, runnerGID); err != nil {
 		CleanupMounts(mnt)

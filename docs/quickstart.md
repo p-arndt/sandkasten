@@ -25,54 +25,38 @@ This builds:
 - `bin/runner` - Runner binary (embedded in sandboxes)
 - `bin/imgbuilder` - Image management tool
 
-### 2. Prepare a Rootfs Image
-
-You need at least one rootfs image. Choose one method:
-
-**Option A: Export from Docker (easiest)**
+### 2. Run Preflight + Bootstrap
 
 ```bash
-# Create and export minimal Alpine rootfs
-docker create --name temp alpine:latest
-docker export temp | gzip > /tmp/base.tar.gz
-docker rm temp
+# Check your system (kernel/cgroups/overlayfs/data-dir hints)
+./bin/sandkasten doctor
 
-# Import into sandkasten
-sudo ./bin/imgbuilder import --name base --tar /tmp/base.tar.gz
+# Create sandkasten.yaml + data dirs + pull base image
+sudo ./bin/sandkasten init --config sandkasten.yaml
 ```
 
-**Option B: Using debootstrap (Debian/Ubuntu)**
+By default, `init` pulls `alpine:latest` into image name `base`.
+
+Pull additional images without Docker:
 
 ```bash
-# Create minimal Debian rootfs
-sudo debootstrap --variant=minbase bookworm /tmp/rootfs
-tar -czf /tmp/base.tar.gz -C /tmp/rootfs .
-sudo ./bin/imgbuilder import --name base --tar /tmp/base.tar.gz
-```
-
-**Option C: Create Python image**
-
-```bash
-# Start from a Python container
-docker create --name temp python:3.12-slim
-docker export temp | gzip > /tmp/python.tar.gz
-docker rm temp
-
-sudo ./bin/imgbuilder import --name python --tar /tmp/python.tar.gz
+sudo ./bin/sandkasten image pull --name python python:3.12-slim
 ```
 
 ### 3. Verify Images
 
 ```bash
-./bin/imgbuilder list
+./bin/sandkasten image list
 
 # Validate
-./bin/imgbuilder validate base
+./bin/sandkasten image validate base
 ```
 
 ### 4. Create Configuration
 
-Create `sandkasten.yaml`:
+If you already ran `sandkasten init`, skip this section.
+
+Create `sandkasten.yaml` manually:
 
 ```yaml
 listen: "127.0.0.1:8080"
@@ -173,40 +157,26 @@ asyncio.run(main())
 
 ## Building Custom Images
 
-### Python Image
-
-```dockerfile
-# Dockerfile for Python rootfs
-FROM python:3.12-slim
-
-# Install common packages
-RUN pip install numpy pandas requests
-
-# Create sandbox user
-RUN useradd -m -u 1000 sandbox
-USER sandbox
-WORKDIR /workspace
-```
-
-Build and export:
+### Python Image (registry pull)
 
 ```bash
-docker build -t my-python .
-docker create --name temp my-python
-docker export temp | gzip > /tmp/my-python.tar.gz
-docker rm temp
-
-sudo ./bin/imgbuilder import --name my-python --tar /tmp/my-python.tar.gz
+sudo ./bin/sandkasten image pull --name my-python python:3.12-slim
 ```
 
-### Node.js Image
+### Node.js Image (registry pull)
 
 ```bash
-docker create --name temp node:22-slim
-docker export temp | gzip > /tmp/node.tar.gz
-docker rm temp
+sudo ./bin/sandkasten image pull --name node node:22-slim
+```
 
-sudo ./bin/imgbuilder import --name node --tar /tmp/node.tar.gz
+### Manual Rootfs Build (no registry)
+
+```bash
+sudo debootstrap --variant=minbase bookworm /tmp/custom-rootfs
+sudo chroot /tmp/custom-rootfs apt-get update
+sudo chroot /tmp/custom-rootfs apt-get install -y python3 python3-pip
+tar -czf /tmp/custom-rootfs.tar.gz -C /tmp/custom-rootfs .
+sudo ./bin/imgbuilder import --name custom --tar /tmp/custom-rootfs.tar.gz
 ```
 
 ## Troubleshooting
@@ -249,13 +219,13 @@ sudo ./bin/sandkasten --config sandkasten.yaml
 Check available images:
 
 ```bash
-./bin/imgbuilder list
+./bin/sandkasten image list
 ```
 
 Import one if needed:
 
 ```bash
-sudo ./bin/imgbuilder import --name base --tar /tmp/base.tar.gz
+sudo ./bin/sandkasten image pull --name base alpine:latest
 ```
 
 ### "Invalid API key"

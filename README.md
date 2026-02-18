@@ -43,19 +43,14 @@ cd sandkasten
 task build
 ```
 
-### 2. Prepare Images
+### 2. Run Preflight + Initialize
 
 ```bash
-# Create a base rootfs (example using debootstrap)
-sudo debootstrap --variant=minbase bookworm /tmp/rootfs
+# Check Linux requirements and hints
+./bin/sandkasten doctor
 
-# Or export from Docker (build-time only)
-docker create --name temp alpine:latest
-docker export temp | gzip > /tmp/base.tar.gz
-docker rm temp
-
-# Import into sandkasten
-sudo ./bin/imgbuilder import --name base --tar /tmp/base.tar.gz
+# Create config + data dirs + pull default image
+sudo ./bin/sandkasten init --config sandkasten.yaml
 ```
 
 ### 3. Start Daemon
@@ -155,41 +150,31 @@ Each sandbox is isolated using:
 
 ## Image Management
 
-### Import Images
+### Pull/Manage Images
 
 ```bash
-# Import from tarball
-sudo ./bin/imgbuilder import --name python --tar python-rootfs.tar.gz
+# Pull directly from OCI registries (no Docker daemon)
+sudo ./bin/sandkasten image pull --name python python:3.12-slim
 
 # List available images
-./bin/imgbuilder list
+./bin/sandkasten image list
 
 # Validate an image
-./bin/imgbuilder validate python
+./bin/sandkasten image validate python
 
 # Delete an image
-sudo ./bin/imgbuilder delete python
+sudo ./bin/sandkasten image delete python
 ```
 
 ### Building Images
 
-**Method 1: From Docker (build-time only)**
+**Method 1: Pull from registry directly (recommended)**
 
 ```bash
-# Create container
-docker create --name temp python:3.12-slim
-
-# Export rootfs
-docker export temp | gzip > python.tar.gz
-
-# Import
-sudo ./bin/imgbuilder import --name python --tar python.tar.gz
-
-# Cleanup
-docker rm temp
+sudo ./bin/sandkasten image pull --name python python:3.12-slim
 ```
 
-**Method 2: Using debootstrap (Debian/Ubuntu)**
+**Method 2: Build rootfs manually + import tarball**
 
 ```bash
 sudo debootstrap --variant=minbase bookworm /tmp/python-rootfs
@@ -205,6 +190,13 @@ Each image must contain:
 - `/usr/local/bin/runner` - Runner binary (auto-copied on import)
 
 ## Configuration
+
+Bootstrap quickly:
+
+```bash
+# Creates config/data dirs and pulls a default base image
+sudo ./bin/sandkasten init --config sandkasten.yaml
+```
 
 Minimal `sandkasten.yaml`:
 
@@ -316,6 +308,7 @@ For production:
 task build      # Build everything
 task daemon     # Build daemon only
 task runner     # Build runner binary
+task imgbuilder # Build legacy image import tool
 task run        # Run daemon locally
 ```
 
