@@ -74,7 +74,11 @@ sudo mkdir -p /var/lib/sandkasten/sessions
 sudo mkdir -p /var/lib/sandkasten/workspaces
 
 # Start daemon (requires root for namespace operations)
+# Foreground:
 sudo ./bin/sandkasten --config sandkasten.yaml
+
+# Or run in background (like Docker):
+sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
 
 ### 6. Verify It's Running
@@ -82,6 +86,9 @@ sudo ./bin/sandkasten --config sandkasten.yaml
 ```bash
 # Check health
 curl http://localhost:8080/healthz
+
+# List sessions (like docker ps)
+./bin/sandkasten ps
 
 # Open dashboard
 open http://localhost:8080

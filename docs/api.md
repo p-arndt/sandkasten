@@ -2,6 +2,8 @@
 
 Complete HTTP API documentation for Sandkasten.
 
+**CLI:** To list sessions from the command line (like `docker ps`), use `./bin/sandkasten ps`. The daemon can be run in the background with `./bin/sandkasten daemon -d`.
+
 ## Authentication
 
 All API endpoints (except `/healthz` and web UI) require authentication:

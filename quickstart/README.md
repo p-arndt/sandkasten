@@ -68,14 +68,16 @@ Start the daemon:
 sudo mkdir -p /var/lib/sandkasten/{images,sessions,workspaces}
 
 # Start daemon (requires root for namespaces)
+# Foreground:
 sudo ./bin/sandkasten --config sandkasten.yaml
+# Or background (like Docker): sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
 
 Check it's working:
 
 ```bash
-curl http://localhost:8080/healthz
-# Should return: {"status":"ok"}
+./bin/sandkasten ps   # List sessions (like docker ps)
+curl http://localhost:8080/healthz   # Should return: {"status":"ok"}
 ```
 
 ---

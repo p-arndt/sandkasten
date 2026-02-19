@@ -39,16 +39,24 @@ task clean
 ## Running the Daemon
 
 ```bash
-# Build and run with Task
+# Build and run with Task (foreground)
 task run
 
-# With config file (requires root for namespace operations)
+# Foreground (requires root for namespace operations)
 sudo ./bin/sandkasten --config sandkasten.yaml
+
+# Background / detached (like Docker daemon)
+sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
+
+# List sessions (like docker ps)
+./bin/sandkasten ps
 
 # Environment variables override config
 export SANDKASTEN_API_KEY="sk-test"
 sudo ./bin/sandkasten
 ```
+
+When running with `-d`/`--detach`, the daemon writes its PID to `<data_dir>/run/sandkasten.pid`.
 
 ## Image Management
 
@@ -206,7 +214,9 @@ sudo rm -rf /var/lib/sandkasten/sessions/<id>
 
 **Start daemon:**
 ```bash
-sudo ./bin/sandkasten --config sandkasten.yaml
+sudo ./bin/sandkasten --config sandkasten.yaml          # foreground
+sudo ./bin/sandkasten daemon -d --config sandkasten.yaml # background
+./bin/sandkasten ps   # list sessions (like docker ps)
 ```
 
 **Import image:**

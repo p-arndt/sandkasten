@@ -56,8 +56,20 @@ sudo ./bin/sandkasten init --config sandkasten.yaml
 ### 3. Start Daemon
 
 ```bash
+# Foreground (logs in terminal)
 sudo ./bin/sandkasten --config sandkasten.yaml
+
+# Background (like Docker daemon)
+sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
+
+List running sessions (like `docker ps`):
+
+```bash
+./bin/sandkasten ps
+```
+
+When running detached, the daemon writes its PID to `<data_dir>/run/sandkasten.pid`.
 
 **Production:** Set `api_key` in your config (or `SANDKASTEN_API_KEY`). Leaving it empty is for development only; if you bind to a non-loopback address (e.g. `0.0.0.0`), the daemon will refuse to start without an API key.
 
@@ -138,6 +150,8 @@ Each sandbox is isolated using:
 │   └── node/
 │       ├── rootfs/
 │       └── meta.json
+├── run/
+│   └── sandkasten.pid       # Daemon PID when run with daemon -d
 ├── sessions/
 │   └── <session_id>/
 │       ├── upper/           # Overlay upper (writable layer)
@@ -311,7 +325,18 @@ task build      # Build everything
 task daemon     # Build daemon only
 task runner     # Build runner binary
 task imgbuilder # Build legacy image import tool
-task run        # Run daemon locally
+task run        # Run daemon locally (foreground)
+```
+
+### CLI Commands
+
+```bash
+./bin/sandkasten              # Run daemon in foreground
+./bin/sandkasten daemon -d    # Run daemon in background (detached)
+./bin/sandkasten ps           # List sessions (like docker ps)
+./bin/sandkasten doctor       # System checks
+./bin/sandkasten init         # Bootstrap config and data dir
+./bin/sandkasten image list   # List images
 ```
 
 ### Project Structure

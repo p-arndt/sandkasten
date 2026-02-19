@@ -161,8 +161,13 @@ Example:
 export SANDKASTEN_API_KEY="sk-prod-secret"
 export SANDKASTEN_DATA_DIR="/var/lib/sandkasten"
 export SANDKASTEN_NETWORK_MODE="none"
+# Foreground
 sudo ./bin/sandkasten --config sandkasten.yaml
+# Or background (daemon mode, like Docker)
+sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
+
+When running detached, the PID is written to `<data_dir>/run/sandkasten.pid`. Use `./bin/sandkasten ps` to list sessions (similar to `docker ps`).
 
 ## Security Recommendations
 

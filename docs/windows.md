@@ -122,10 +122,16 @@ sudo mkdir -p /var/lib/sandkasten/{images,sessions,workspaces}
 
 ```bash
 # Run with sudo (required for namespaces)
+# Foreground (logs in terminal):
 sudo ./bin/sandkasten --config sandkasten.yaml
+
+# Or in background (like Docker daemon):
+sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
 
-You should see:
+To list sessions: `./bin/sandkasten ps`
+
+You should see (when running in foreground):
 
 ```
 INFO listening addr=127.0.0.1:8080
