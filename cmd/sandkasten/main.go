@@ -43,6 +43,10 @@ func main() {
 			os.Exit(runInit(os.Args[2:]))
 		case "image":
 			os.Exit(runImage(os.Args[2:]))
+		case "ps":
+			os.Exit(runPs(os.Args[2:]))
+		case "daemon":
+			os.Exit(runDaemon(os.Args[2:]))
 		}
 	}
 
@@ -59,9 +63,12 @@ func runDaemon(args []string) int {
 	fs.SetOutput(os.Stderr)
 	cfgPath := fs.String("config", "", "path to sandkasten.yaml")
 	logLevelStr := fs.String("log-level", "", "log level: debug, info, warn, error (default from SANDKASTEN_LOG or info)")
+	detach := fs.Bool("detach", false, "run daemon in background (like docker)")
+	detachShort := fs.Bool("d", false, "short for --detach")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
+	daemonDetach := *detach || *detachShort
 
 	logLevel := slog.LevelInfo
 	if v := *logLevelStr; v != "" {
@@ -105,6 +112,20 @@ func runDaemon(args []string) int {
 		return 1
 	}
 	logger.Debug("config loaded", "config_path", path, "data_dir", cfg.DataDir, "db_path", cfg.DBPath, "listen", cfg.Listen, "network_mode", cfg.Defaults.NetworkMode)
+
+	if daemonDetach {
+		if err := daemonize(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "daemonize: %v\n", err)
+			return 1
+		}
+		// After daemonize, stdout/stderr are /dev/null; use them for the logger
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	}
+
+	if err := writePidFileIfDetached(cfg); err != nil {
+		logger.Error("write pid file", "error", err)
+		return 1
+	}
 
 	if cfg.APIKey == "" {
 		if isListenNonLoopback(cfg.Listen) {

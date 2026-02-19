@@ -13,17 +13,22 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/p-arndt/sandkasten/internal/config"
+	"github.com/p-arndt/sandkasten/internal/session"
 	"golang.org/x/sys/unix"
 	"gopkg.in/yaml.v3"
 )
@@ -90,7 +95,9 @@ func runImage(args []string) int {
 
 func printMainUsage() {
 	fmt.Fprint(os.Stderr, `Usage:
-  sandkasten [--config <path>] [--log-level <level>]      Run daemon
+  sandkasten [--config <path>] [--log-level <level>]      Run daemon (foreground)
+  sandkasten daemon [-d|--detach] [options]              Run daemon (optionally in background)
+  sandkasten ps [--config <path>] [--host <url>]          List sessions (like docker ps)
   sandkasten doctor [--data-dir <dir>]                    Run environment checks
   sandkasten init [options]                               Bootstrap config and data dir
   sandkasten image <command> [options]                    Manage images
@@ -107,6 +114,130 @@ Init defaults:
   --default-image base
   --pull alpine:latest
 `)
+}
+
+// runPs lists sessions by calling the daemon API (like docker ps).
+func runPs(args []string) int {
+	fs := flag.NewFlagSet("ps", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	cfgPath := fs.String("config", "", "path to sandkasten.yaml (used to get listen and api_key)")
+	host := fs.String("host", "", "daemon URL (e.g. http://127.0.0.1:8080); overrides config listen")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	baseURL := *host
+	apiKey := os.Getenv("SANDKASTEN_API_KEY")
+	if baseURL == "" {
+		path := *cfgPath
+		if path == "" {
+			for _, p := range []string{"sandkasten.yaml", "/etc/sandkasten/sandkasten.yaml"} {
+				if _, err := os.Stat(p); err == nil {
+					path = p
+					break
+				}
+			}
+		}
+		cfg, err := config.Load(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ps: load config: %v\n", err)
+			return 1
+		}
+		baseURL = "http://" + cfg.Listen
+		if apiKey == "" {
+			apiKey = cfg.APIKey
+		}
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, baseURL+"/v1/sessions", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ps: %v\n", err)
+		return 1
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ps: cannot reach daemon at %s: %v\n", baseURL, err)
+		return 1
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "ps: daemon returned %s\n", resp.Status)
+		return 1
+	}
+
+	var sessions []session.SessionInfo
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		fmt.Fprintf(os.Stderr, "ps: decode response: %v\n", err)
+		return 1
+	}
+
+	// Table header
+	fmt.Printf("%-36s %-12s %-10s %-12s %s\n", "SESSION ID", "IMAGE", "STATUS", "CREATED", "CWD")
+	fmt.Printf("%-36s %-12s %-10s %-12s %s\n", "----------", "-----", "------", "------", "---")
+	for _, s := range sessions {
+		created := s.CreatedAt.Format("2006-01-02")
+		if t := s.CreatedAt; t.Year() == time.Now().Year() && t.YearDay() == time.Now().YearDay() {
+			created = s.CreatedAt.Format("15:04:05")
+		}
+		fmt.Printf("%-36s %-12s %-10s %-12s %s\n", s.ID, s.Image, s.Status, created, s.Cwd)
+	}
+	return 0
+}
+
+// daemonize starts the daemon in a new process with Setsid and exits the parent (re-exec approach).
+// The child runs with SANDKASTEN_DETACHED=1 and will write the PID file after loading config.
+func daemonize(cfg *config.Config) error {
+	childArgs := filterDetachArgs(os.Args[1:])
+	cmd := exec.Command(os.Args[0], childArgs...)
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	null, err := os.OpenFile("/dev/null", os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("open /dev/null: %w", err)
+	}
+	defer null.Close()
+	cmd.Stdin = null
+	cmd.Stdout = null
+	cmd.Stderr = null
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Env = append(os.Environ(), "SANDKASTEN_DETACHED=1")
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start daemon process: %w", err)
+	}
+	os.Exit(0)
+	return nil // unreachable; os.Exit(0) above
+}
+
+// filterDetachArgs returns a copy of args with -d and --detach removed.
+func filterDetachArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-d" || args[i] == "--detach" {
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out
+}
+
+// writePidFileIfDetached writes the PID file when running as the detached daemon child.
+func writePidFileIfDetached(cfg *config.Config) error {
+	if os.Getenv("SANDKASTEN_DETACHED") != "1" {
+		return nil
+	}
+	runDir := filepath.Join(cfg.DataDir, "run")
+	if err := os.MkdirAll(runDir, 0755); err != nil {
+		return fmt.Errorf("mkdir run: %w", err)
+	}
+	pidPath := filepath.Join(runDir, "sandkasten.pid")
+	return os.WriteFile(pidPath, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0644)
 }
 
 func runDoctor(args []string) int {
