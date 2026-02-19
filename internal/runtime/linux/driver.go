@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -43,6 +44,7 @@ func NewDriver(cfg *config.Config, logger *slog.Logger) (*Driver, error) {
 		d.dataDir,
 		filepath.Join(d.dataDir, "sessions"),
 		filepath.Join(d.dataDir, "workspaces"),
+		filepath.Join(d.dataDir, "layers"),
 		d.imageDir,
 	}
 	for _, dir := range dirs {
@@ -69,9 +71,27 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 	runnerUID := 1000
 	runnerGID := 1000
 
-	lower := filepath.Join(d.imageDir, opts.Image, "rootfs")
-	if _, err := os.Stat(lower); os.IsNotExist(err) {
-		return nil, fmt.Errorf("image %s not found at %s", opts.Image, lower)
+	var lower string
+	metaPath := filepath.Join(d.imageDir, opts.Image, "meta.json")
+	if metaData, err := os.ReadFile(metaPath); err == nil {
+		var meta struct {
+			Layers []string `json:"layers"`
+		}
+		if err := json.Unmarshal(metaData, &meta); err == nil && len(meta.Layers) > 0 {
+			var lowerDirs []string
+			lowerDirs = append(lowerDirs, filepath.Join(d.dataDir, "layers", "runner", "rootfs"))
+			for i := len(meta.Layers) - 1; i >= 0; i-- {
+				lowerDirs = append(lowerDirs, filepath.Join(d.dataDir, "layers", meta.Layers[i], "rootfs"))
+			}
+			lower = strings.Join(lowerDirs, ":")
+		}
+	}
+
+	if lower == "" {
+		lower = filepath.Join(d.imageDir, opts.Image, "rootfs")
+		if _, err := os.Stat(lower); os.IsNotExist(err) {
+			return nil, fmt.Errorf("image %s not found at %s", opts.Image, lower)
+		}
 	}
 
 	sessionDir := filepath.Join(d.dataDir, "sessions", opts.SessionID)

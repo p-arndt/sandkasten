@@ -21,6 +21,7 @@ type ImageMeta struct {
 	Name      string    `json:"name"`
 	Hash      string    `json:"hash"`
 	CreatedAt time.Time `json:"created_at"`
+	Layers    []string  `json:"layers,omitempty"`
 }
 
 func main() {
@@ -254,8 +255,30 @@ func listImages(dataDir string) error {
 
 func validateImage(dataDir, name string) error {
 	imageDir := filepath.Join(dataDir, "images", name)
-	rootfsDir := filepath.Join(imageDir, "rootfs")
+	metaPath := filepath.Join(imageDir, "meta.json")
 
+	metaData, err := os.ReadFile(metaPath)
+	if err != nil {
+		return fmt.Errorf("read meta: %w", err)
+	}
+	var meta ImageMeta
+	if err := json.Unmarshal(metaData, &meta); err != nil {
+		return fmt.Errorf("parse meta: %w", err)
+	}
+
+	if len(meta.Layers) > 0 {
+		for _, layer := range meta.Layers {
+			if _, err := os.Stat(filepath.Join(dataDir, "layers", layer, "rootfs")); err != nil {
+				return fmt.Errorf("missing layer: %s", layer)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(dataDir, "layers", "runner", "rootfs", "usr", "local", "bin", "runner")); err != nil {
+			return fmt.Errorf("missing runner layer")
+		}
+		return nil
+	}
+
+	rootfsDir := filepath.Join(imageDir, "rootfs")
 	if _, err := os.Stat(rootfsDir); os.IsNotExist(err) {
 		return fmt.Errorf("image rootfs not found")
 	}

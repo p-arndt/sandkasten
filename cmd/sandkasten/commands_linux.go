@@ -39,6 +39,7 @@ type ImageMeta struct {
 	Name      string    `json:"name"`
 	Hash      string    `json:"hash"`
 	CreatedAt time.Time `json:"created_at"`
+	Layers    []string  `json:"layers,omitempty"`
 }
 
 type initConfigDefaults struct {
@@ -352,14 +353,13 @@ func pullImage(dataDir, nameValue, ref string) (err error) {
 	}
 
 	imageDir := filepath.Join(dataDir, "images", nameValue)
-	rootfsDir := filepath.Join(imageDir, "rootfs")
 
-	if _, statErr := os.Stat(rootfsDir); statErr == nil {
+	if _, statErr := os.Stat(imageDir); statErr == nil {
 		return fmt.Errorf("image %s already exists", nameValue)
 	}
 
-	if err := os.MkdirAll(rootfsDir, 0755); err != nil {
-		return fmt.Errorf("create rootfs dir: %w", err)
+	if err := os.MkdirAll(imageDir, 0755); err != nil {
+		return fmt.Errorf("create image dir: %w", err)
 	}
 
 	defer func() {
@@ -383,15 +383,31 @@ func pullImage(dataDir, nameValue, ref string) (err error) {
 		return fmt.Errorf("resolve layers: %w", err)
 	}
 
+	var layerIDs []string
 	for _, layer := range layers {
+		digest, err := layer.Digest()
+		if err != nil {
+			return fmt.Errorf("layer digest: %w", err)
+		}
+		layerID := digest.Hex
+		layerIDs = append(layerIDs, layerID)
+
+		layerRootfs := filepath.Join(dataDir, "layers", layerID, "rootfs")
+		if _, err := os.Stat(layerRootfs); err == nil {
+			continue // Already extracted
+		}
+		if err := os.MkdirAll(layerRootfs, 0755); err != nil {
+			return fmt.Errorf("create layer rootfs: %w", err)
+		}
+
 		reader, err := layer.Uncompressed()
 		if err != nil {
 			return fmt.Errorf("open layer: %w", err)
 		}
 
-		if err := extractLayer(rootfsDir, reader); err != nil {
+		if err := extractLayer(layerRootfs, reader); err != nil {
 			reader.Close()
-			return fmt.Errorf("extract layer: %w", err)
+			return fmt.Errorf("extract layer %s: %w", layerID, err)
 		}
 		if err := reader.Close(); err != nil {
 			return fmt.Errorf("close layer: %w", err)
@@ -407,12 +423,13 @@ func pullImage(dataDir, nameValue, ref string) (err error) {
 		Name:      nameValue,
 		Hash:      digest.String(),
 		CreatedAt: time.Now().UTC(),
+		Layers:    layerIDs,
 	}
 	if err := writeMeta(filepath.Join(imageDir, "meta.json"), meta); err != nil {
 		return err
 	}
 
-	if err := injectRunner(rootfsDir); err != nil {
+	if err := injectRunner(dataDir); err != nil {
 		return err
 	}
 
@@ -454,9 +471,36 @@ func listImages(dataDir string) error {
 
 func validateImage(dataDir, nameValue string) error {
 	imageDir := filepath.Join(dataDir, "images", nameValue)
+	metaPath := filepath.Join(imageDir, "meta.json")
+
+	metaData, err := os.ReadFile(metaPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("image %s not found (meta.json missing)", nameValue)
+		}
+		return fmt.Errorf("read meta: %w", err)
+	}
+	var meta ImageMeta
+	if err := json.Unmarshal(metaData, &meta); err != nil {
+		return fmt.Errorf("parse meta: %w", err)
+	}
+
+	if len(meta.Layers) > 0 {
+		for _, layer := range meta.Layers {
+			if _, err := os.Stat(filepath.Join(dataDir, "layers", layer, "rootfs")); err != nil {
+				return fmt.Errorf("missing layer: %s", layer)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(dataDir, "layers", "runner", "rootfs", "usr", "local", "bin", "runner")); err != nil {
+			return fmt.Errorf("missing runner layer")
+		}
+		return nil
+	}
+
 	rootfsDir := filepath.Join(imageDir, "rootfs")
 
 	if _, err := os.Stat(rootfsDir); errors.Is(err, fs.ErrNotExist) {
+		// Since we didn't find layers in meta and we didn't find rootfs, image is invalid
 		return fmt.Errorf("image rootfs not found")
 	}
 
@@ -512,19 +556,15 @@ func extractLayer(rootfsDir string, layerReader io.Reader) error {
 		baseName := filepath.Base(rel)
 		dirName := filepath.Dir(target)
 		if baseName == ".wh..wh..opq" {
-			entries, err := os.ReadDir(dirName)
-			if err == nil {
-				for _, entry := range entries {
-					if removeErr := os.RemoveAll(filepath.Join(dirName, entry.Name())); removeErr != nil {
-						return removeErr
-					}
-				}
+			if err := unix.Setxattr(dirName, "trusted.overlay.opaque", []byte("y"), 0); err != nil {
+				// some filesystems don't support xattr or we might not have permissions (though we run as root)
+				// ignore if it's not supported, but ideally it works
 			}
 			continue
 		}
 		if strings.HasPrefix(baseName, ".wh.") {
 			whiteoutTarget := filepath.Join(dirName, strings.TrimPrefix(baseName, ".wh."))
-			if err := os.RemoveAll(whiteoutTarget); err != nil {
+			if err := unix.Mknod(whiteoutTarget, unix.S_IFCHR|0, 0); err != nil {
 				return err
 			}
 			continue
@@ -598,8 +638,12 @@ func writeMeta(metaPath string, meta ImageMeta) error {
 	return nil
 }
 
-func injectRunner(rootfsDir string) error {
-	runnerDst := filepath.Join(rootfsDir, "usr", "local", "bin", "runner")
+func injectRunner(dataDir string) error {
+	runnerDst := filepath.Join(dataDir, "layers", "runner", "rootfs", "usr", "local", "bin", "runner")
+	if _, err := os.Stat(runnerDst); err == nil {
+		return nil // already injected
+	}
+
 	if err := os.MkdirAll(filepath.Dir(runnerDst), 0755); err != nil {
 		return fmt.Errorf("create runner dir: %w", err)
 	}
@@ -646,7 +690,7 @@ func secureTargetPath(rootfsDir, archivePath string) (string, string, error) {
 	clean := filepath.Clean("/" + filepath.FromSlash(archivePath))
 	rel := strings.TrimPrefix(clean, "/")
 	if rel == "" || rel == "." {
-		return "", "", fmt.Errorf("invalid archive path %q", archivePath)
+		return rootfsDir, "", nil
 	}
 	target := filepath.Join(rootfsDir, rel)
 	if !strings.HasPrefix(target, rootfsDir+string(os.PathSeparator)) && target != rootfsDir {
@@ -834,7 +878,7 @@ func generateAPIKey() (string, error) {
 }
 
 func imageExists(dataDir, image string) bool {
-	_, err := os.Stat(filepath.Join(dataDir, "images", image, "rootfs"))
+	_, err := os.Stat(filepath.Join(dataDir, "images", image))
 	return err == nil
 }
 
