@@ -62,7 +62,17 @@ func (m *Manager) ReadWorkspaceFile(ctx context.Context, workspaceID, filePath s
 	workspacePath := filepath.Join(m.cfg.DataDir, "workspaces", shortID)
 	fullPath := filepath.Join(workspacePath, safePath)
 
-	info, err := os.Stat(fullPath)
+	// Resolve symlinks and ensure the resolved path stays inside the workspace (prevents symlink escape).
+	realPath, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		return "", false, fmt.Errorf("resolve path: %w", err)
+	}
+	rel, err := filepath.Rel(workspacePath, realPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", false, fmt.Errorf("path escapes workspace")
+	}
+
+	info, err := os.Stat(realPath)
 	if err != nil {
 		return "", false, fmt.Errorf("stat file: %w", err)
 	}
@@ -74,7 +84,7 @@ func (m *Manager) ReadWorkspaceFile(ctx context.Context, workspaceID, filePath s
 		maxBytes = protocol.DefaultMaxReadBytes
 	}
 
-	file, err := os.Open(fullPath)
+	file, err := os.Open(realPath)
 	if err != nil {
 		return "", false, fmt.Errorf("open file: %w", err)
 	}
@@ -107,9 +117,7 @@ func (m *Manager) safeWorkspacePath(raw string) string {
 	if cleaned == "." || cleaned == "/" {
 		return ""
 	}
-	if strings.HasPrefix(cleaned, "/") {
-		cleaned = strings.TrimPrefix(cleaned, "/")
-	}
+	cleaned = strings.TrimPrefix(cleaned, "/")
 	if strings.Contains(cleaned, "..") {
 		return ""
 	}

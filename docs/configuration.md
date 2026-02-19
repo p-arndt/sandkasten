@@ -59,8 +59,8 @@ security:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `listen` | string | `127.0.0.1:8080` | Host and port to bind |
-| `api_key` | string | `""` | API key (empty = open access) |
+| `listen` | string | `127.0.0.1:8080` | Host and port to bind. For production, use `127.0.0.1` and put a reverse proxy (with TLS) in front, or ensure `api_key` is set if binding to `0.0.0.0`. |
+| `api_key` | string | `""` | API key. **Empty = open access (dev only).** Never leave empty in production or when binding to a non-loopback address (e.g. `0.0.0.0`); the daemon will refuse to start. |
 
 ### Data Storage
 
@@ -198,6 +198,8 @@ sudo ./bin/sandkasten --config sandkasten.yaml
      - "python"
      - "node"
    ```
+
+6. **Rate limiting**: The daemon does not rate-limit requests. Put a reverse proxy (e.g. nginx, Caddy) in front and configure rate limits per IP or per API key to reduce DoS risk.
 
 ### Isolation Guarantees
 

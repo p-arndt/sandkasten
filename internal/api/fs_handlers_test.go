@@ -18,11 +18,11 @@ func TestHandleWrite_Success(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Write", mock.Anything, "s1", "/workspace/test.py", []byte("print('hello')"), false).Return(nil)
+	mockMgr.On("Write", mock.Anything, "a1b2c3d4-e5f", "/workspace/test.py", []byte("print('hello')"), false).Return(nil)
 
 	body := `{"path":"/workspace/test.py","text":"print('hello')"}`
-	req := httptest.NewRequest("POST", "/v1/sessions/s1/fs/write", strings.NewReader(body))
-	req.SetPathValue("id", "s1")
+	req := httptest.NewRequest("POST", "/v1/sessions/a1b2c3d4-e5f/fs/write", strings.NewReader(body))
+	req.SetPathValue("id", "a1b2c3d4-e5f")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -36,8 +36,8 @@ func TestHandleWrite_MissingPath(t *testing.T) {
 	s := testAPIServer(mockMgr)
 
 	body := `{"text":"hello"}`
-	req := httptest.NewRequest("POST", "/v1/sessions/s1/fs/write", strings.NewReader(body))
-	req.SetPathValue("id", "s1")
+	req := httptest.NewRequest("POST", "/v1/sessions/a1b2c3d4-e5f/fs/write", strings.NewReader(body))
+	req.SetPathValue("id", "a1b2c3d4-e5f")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -50,11 +50,11 @@ func TestHandleWrite_NotFound(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Write", mock.Anything, "nonexistent", "/test", mock.Anything, false).Return(fmt.Errorf("%w: nonexistent", session.ErrNotFound))
+	mockMgr.On("Write", mock.Anything, "00000000-001", "/test", mock.Anything, false).Return(fmt.Errorf("%w: 00000000-001", session.ErrNotFound))
 
 	body := `{"path":"/test","text":"hello"}`
-	req := httptest.NewRequest("POST", "/v1/sessions/nonexistent/fs/write", strings.NewReader(body))
-	req.SetPathValue("id", "nonexistent")
+	req := httptest.NewRequest("POST", "/v1/sessions/00000000-001/fs/write", strings.NewReader(body))
+	req.SetPathValue("id", "00000000-001")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -67,10 +67,10 @@ func TestHandleRead_Success(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Read", mock.Anything, "s1", "/workspace/test.py", 0).Return("cHJpbnQoJ2hlbGxvJyk=", false, nil)
+	mockMgr.On("Read", mock.Anything, "a1b2c3d4-e5f", "/workspace/test.py", 0).Return("cHJpbnQoJ2hlbGxvJyk=", false, nil)
 
-	req := httptest.NewRequest("GET", "/v1/sessions/s1/fs/read?path=/workspace/test.py", nil)
-	req.SetPathValue("id", "s1")
+	req := httptest.NewRequest("GET", "/v1/sessions/a1b2c3d4-e5f/fs/read?path=/workspace/test.py", nil)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
 	rec := httptest.NewRecorder()
 
 	s.handleRead(rec, req)
@@ -87,8 +87,8 @@ func TestHandleRead_MissingPath(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	req := httptest.NewRequest("GET", "/v1/sessions/s1/fs/read", nil)
-	req.SetPathValue("id", "s1")
+	req := httptest.NewRequest("GET", "/v1/sessions/a1b2c3d4-e5f/fs/read", nil)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
 	rec := httptest.NewRecorder()
 
 	s.handleRead(rec, req)
@@ -100,10 +100,10 @@ func TestHandleRead_WithMaxBytes(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Read", mock.Anything, "s1", "/test", 1024).Return("data", false, nil)
+	mockMgr.On("Read", mock.Anything, "a1b2c3d4-e5f", "/test", 1024).Return("data", false, nil)
 
-	req := httptest.NewRequest("GET", "/v1/sessions/s1/fs/read?path=/test&max_bytes=1024", nil)
-	req.SetPathValue("id", "s1")
+	req := httptest.NewRequest("GET", "/v1/sessions/a1b2c3d4-e5f/fs/read?path=/test&max_bytes=1024", nil)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
 	rec := httptest.NewRecorder()
 
 	s.handleRead(rec, req)
@@ -115,8 +115,8 @@ func TestHandleRead_InvalidMaxBytes(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	req := httptest.NewRequest("GET", "/v1/sessions/s1/fs/read?path=/test&max_bytes=abc", nil)
-	req.SetPathValue("id", "s1")
+	req := httptest.NewRequest("GET", "/v1/sessions/a1b2c3d4-e5f/fs/read?path=/test&max_bytes=abc", nil)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
 	rec := httptest.NewRecorder()
 
 	s.handleRead(rec, req)

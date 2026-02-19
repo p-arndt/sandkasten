@@ -14,7 +14,10 @@ type writeRequest struct {
 
 func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-
+	if err := ValidateSessionID(id); err != nil {
+		writeValidationError(w, err.Error(), nil)
+		return
+	}
 	var req writeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeValidationError(w, "invalid json: "+err.Error(), nil)
@@ -39,6 +42,10 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if err := ValidateSessionID(id); err != nil {
+		writeValidationError(w, err.Error(), nil)
+		return
+	}
 	path := r.URL.Query().Get("path")
 
 	maxBytes, err := parseMaxBytes(r)

@@ -36,7 +36,7 @@ func TestHandleCreateSession_Success(t *testing.T) {
 		Image:      "sandbox-runtime:python",
 		TTLSeconds: 600,
 	}).Return(&session.SessionInfo{
-		ID:        "abc123",
+		ID:        "a1b2c3d4-e5f",
 		Image:     "sandbox-runtime:python",
 		Status:    "running",
 		Cwd:       "/workspace",
@@ -55,7 +55,7 @@ func TestHandleCreateSession_Success(t *testing.T) {
 
 	var info session.SessionInfo
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&info))
-	assert.Equal(t, "abc123", info.ID)
+	assert.Equal(t, "a1b2c3d4-e5f", info.ID)
 	assert.Equal(t, "running", info.Status)
 }
 
@@ -107,14 +107,14 @@ func TestHandleGetSession_Success(t *testing.T) {
 	s := testAPIServer(mockMgr)
 
 	now := time.Now().UTC()
-	mockMgr.On("Get", mock.Anything, "abc123").Return(&session.SessionInfo{
-		ID:     "abc123",
+	mockMgr.On("Get", mock.Anything, "a1b2c3d4-e5f").Return(&session.SessionInfo{
+		ID:     "a1b2c3d4-e5f",
 		Image:  "sandbox-runtime:base",
 		Status: "running",
 	}, nil)
 
-	req := httptest.NewRequest("GET", "/v1/sessions/abc123", nil)
-	req.SetPathValue("id", "abc123")
+	req := httptest.NewRequest("GET", "/v1/sessions/a1b2c3d4-e5f", nil)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
 	rec := httptest.NewRecorder()
 
 	s.handleGetSession(rec, req)
@@ -123,7 +123,7 @@ func TestHandleGetSession_Success(t *testing.T) {
 
 	var info session.SessionInfo
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&info))
-	assert.Equal(t, "abc123", info.ID)
+	assert.Equal(t, "a1b2c3d4-e5f", info.ID)
 	_ = now
 }
 
@@ -131,10 +131,10 @@ func TestHandleGetSession_NotFound(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Get", mock.Anything, "nonexistent").Return(nil, fmt.Errorf("%w: nonexistent", session.ErrNotFound))
+	mockMgr.On("Get", mock.Anything, "00000000-001").Return(nil, fmt.Errorf("%w: 00000000-001", session.ErrNotFound))
 
-	req := httptest.NewRequest("GET", "/v1/sessions/nonexistent", nil)
-	req.SetPathValue("id", "nonexistent")
+	req := httptest.NewRequest("GET", "/v1/sessions/00000000-001", nil)
+	req.SetPathValue("id", "00000000-001")
 	rec := httptest.NewRecorder()
 
 	s.handleGetSession(rec, req)
@@ -147,7 +147,7 @@ func TestHandleListSessions(t *testing.T) {
 	s := testAPIServer(mockMgr)
 
 	mockMgr.On("List", mock.Anything).Return([]session.SessionInfo{
-		{ID: "s1", Status: "running"},
+		{ID: "a1b2c3d4-e5f", Status: "running"},
 		{ID: "s2", Status: "destroyed"},
 	}, nil)
 
@@ -167,10 +167,10 @@ func TestHandleDestroy_Success(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Destroy", mock.Anything, "abc123").Return(nil)
+	mockMgr.On("Destroy", mock.Anything, "a1b2c3d4-e5f").Return(nil)
 
-	req := httptest.NewRequest("DELETE", "/v1/sessions/abc123", nil)
-	req.SetPathValue("id", "abc123")
+	req := httptest.NewRequest("DELETE", "/v1/sessions/a1b2c3d4-e5f", nil)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
 	rec := httptest.NewRecorder()
 
 	s.handleDestroy(rec, req)
@@ -182,10 +182,10 @@ func TestHandleDestroy_NotFound(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Destroy", mock.Anything, "nonexistent").Return(fmt.Errorf("session not found: nonexistent"))
+	mockMgr.On("Destroy", mock.Anything, "00000000-001").Return(fmt.Errorf("session not found: 00000000-001"))
 
-	req := httptest.NewRequest("DELETE", "/v1/sessions/nonexistent", nil)
-	req.SetPathValue("id", "nonexistent")
+	req := httptest.NewRequest("DELETE", "/v1/sessions/00000000-001", nil)
+	req.SetPathValue("id", "00000000-001")
 	rec := httptest.NewRecorder()
 
 	s.handleDestroy(rec, req)

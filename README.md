@@ -59,6 +59,8 @@ sudo ./bin/sandkasten init --config sandkasten.yaml
 sudo ./bin/sandkasten --config sandkasten.yaml
 ```
 
+**Production:** Set `api_key` in your config (or `SANDKASTEN_API_KEY`). Leaving it empty is for development only; if you bind to a non-loopback address (e.g. `0.0.0.0`), the daemon will refuse to start without an API key.
+
 ### 4. Run Example Agent
 
 ```bash

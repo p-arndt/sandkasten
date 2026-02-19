@@ -148,9 +148,7 @@ The sandbox has:
 - Full internet access
 
 Package management:
-- Use 'pip install <package>' for quick installs
-- Use 'uv pip install <package>' for faster installs
-- Use 'uv venv && source .venv/bin/activate' to create virtual environments
+- Use 'pip install <package>'
 
 Always:
 1. Be helpful and thorough

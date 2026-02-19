@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -47,10 +48,13 @@ func buildSentinels(requestID string) (begin, end string) {
 }
 
 // buildWrappedCommand wraps user command with sentinels for output capture.
+// The command is base64-encoded so it is never interpreted as part of the wrapper
+// script, preventing injection via newlines or shell metacharacters.
 func buildWrappedCommand(beginMarker, endMarker, cmd string) string {
+	encoded := base64.StdEncoding.EncodeToString([]byte(cmd))
 	return fmt.Sprintf(
-		"printf '%%s\\n' '%s'\n%s\nprintf '\\n%s:%%d:%%s\\n' \"$?\" \"$PWD\"\n",
-		beginMarker, cmd, endMarker,
+		"printf '%%s\\n' '%s'\n__b64='%s'; echo \"$__b64\" | base64 -d | bash\nprintf '\\n%s:%%d:%%s\\n' \"$?\" \"$PWD\"\n",
+		beginMarker, encoded, endMarker,
 	)
 }
 

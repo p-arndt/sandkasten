@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -106,7 +107,11 @@ func runDaemon(args []string) int {
 	logger.Debug("config loaded", "config_path", path, "data_dir", cfg.DataDir, "db_path", cfg.DBPath, "listen", cfg.Listen, "network_mode", cfg.Defaults.NetworkMode)
 
 	if cfg.APIKey == "" {
-		logger.Warn("no API key configured — running in open access mode")
+		if isListenNonLoopback(cfg.Listen) {
+			logger.Error("refusing to start: API key is empty and listen address is not loopback; set api_key in config or use listen 127.0.0.1 for dev only")
+			return 1
+		}
+		logger.Warn("no API key configured — running in open access mode (dev only; do not use in production)")
 	}
 
 	st, err := store.New(cfg.DBPath)
@@ -174,4 +179,20 @@ func runDaemon(args []string) int {
 	}
 
 	return 0
+}
+
+// isListenNonLoopback returns true if the listen address binds to a non-loopback interface.
+func isListenNonLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return true // unknown format; treat as non-loopback to be safe
+	}
+	if host == "" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true
+	}
+	return !ip.IsLoopback()
 }

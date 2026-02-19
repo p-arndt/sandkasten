@@ -68,10 +68,10 @@ func TestHandleDeleteWorkspace_Error(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("DeleteWorkspace", mock.Anything, "nonexistent").Return(fmt.Errorf("not found"))
+	mockMgr.On("DeleteWorkspace", mock.Anything, "zz-nonexistent-ws").Return(fmt.Errorf("not found"))
 
 	req := httptest.NewRequest("DELETE", "/v1/workspaces/nonexistent", nil)
-	req.SetPathValue("id", "nonexistent")
+	req.SetPathValue("id", "zz-nonexistent-ws")
 	rec := httptest.NewRecorder()
 
 	s.handleDeleteWorkspace(rec, req)

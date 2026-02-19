@@ -42,6 +42,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if err := ValidateSessionID(id); err != nil {
+		writeValidationError(w, err.Error(), nil)
+		return
+	}
 	s.logger.Debug("get session", "session_id", id)
 	info, err := s.manager.Get(r.Context(), id)
 	if err != nil {
@@ -64,6 +68,10 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDestroy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if err := ValidateSessionID(id); err != nil {
+		writeValidationError(w, err.Error(), nil)
+		return
+	}
 	s.logger.Debug("destroy session", "session_id", id)
 	if err := s.manager.Destroy(r.Context(), id); err != nil {
 		s.logger.Error("destroy", "session_id", id, "error", err)

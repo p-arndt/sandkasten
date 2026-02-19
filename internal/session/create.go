@@ -12,6 +12,9 @@ import (
 
 func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, error) {
 	image := m.resolveImage(opts.Image)
+	if !isImageNameSafe(image) {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidImage, image)
+	}
 	if !m.isImageAllowed(image) {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidImage, image)
 	}

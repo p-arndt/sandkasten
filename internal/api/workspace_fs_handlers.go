@@ -7,11 +7,14 @@ import (
 
 func (s *Server) handleListWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if err := ValidateWorkspaceID(id); err != nil {
+		writeValidationError(w, err.Error(), nil)
+		return
+	}
 	pathParam := r.URL.Query().Get("path")
 	if pathParam == "" {
 		pathParam = "."
 	}
-
 	entries, err := s.manager.ListWorkspaceFiles(r.Context(), id, pathParam)
 	if err != nil {
 		s.logger.Error("list workspace files", "workspace_id", id, "error", err)
@@ -24,6 +27,10 @@ func (s *Server) handleListWorkspaceFiles(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleReadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if err := ValidateWorkspaceID(id); err != nil {
+		writeValidationError(w, err.Error(), nil)
+		return
+	}
 	pathParam := r.URL.Query().Get("path")
 	if pathParam == "" {
 		writeValidationError(w, "path is required", nil)

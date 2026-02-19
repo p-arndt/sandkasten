@@ -95,7 +95,6 @@ func TestAuthMiddleware_SkipPaths(t *testing.T) {
 	skipPaths := []string{
 		"/healthz",
 		"/",
-		"/api/status",
 		"/_app/immutable/something.js",
 		"/sessions",
 		"/workspaces",
@@ -112,6 +111,18 @@ func TestAuthMiddleware_SkipPaths(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code, "path %s should skip auth", path)
 		})
 	}
+}
+
+func TestAuthMiddleware_StatusRequiresAuth(t *testing.T) {
+	s := testServer("sk-test-key")
+	handler := s.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/api/status", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "/api/status should require auth when API key is set")
 }
 
 func TestAuthMiddleware_SkipStaticFiles(t *testing.T) {
@@ -148,8 +159,9 @@ func TestAuthMiddleware_ReadOnlyConfig(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// GET /api/config should not require auth
+	// GET /api/config requires auth when API key is set
 	req := httptest.NewRequest("GET", "/api/config", nil)
+	req.Header.Set("Authorization", "Bearer sk-test-key")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)

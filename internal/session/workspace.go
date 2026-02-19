@@ -23,12 +23,12 @@ func (m *Manager) ListWorkspaces(ctx context.Context) ([]*WorkspaceInfo, error) 
 	entries, err := os.ReadDir(workspaceDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return []*WorkspaceInfo{}, nil
 		}
 		return nil, fmt.Errorf("read workspaces dir: %w", err)
 	}
 
-	var result []*WorkspaceInfo
+	result := make([]*WorkspaceInfo, 0)
 	for _, entry := range entries {
 		if entry.IsDir() {
 			result = append(result, &WorkspaceInfo{
@@ -36,7 +36,6 @@ func (m *Manager) ListWorkspaces(ctx context.Context) ([]*WorkspaceInfo, error) 
 			})
 		}
 	}
-
 	return result, nil
 }
 

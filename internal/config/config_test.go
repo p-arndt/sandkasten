@@ -14,8 +14,8 @@ func TestLoadDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "127.0.0.1:8080", cfg.Listen)
-	assert.Equal(t, "sandbox-runtime:base", cfg.DefaultImage)
-	assert.Equal(t, "./sandkasten.db", cfg.DBPath)
+	assert.Equal(t, "base", cfg.DefaultImage)
+	assert.Equal(t, "/var/lib/sandkasten/sandkasten.db", cfg.DBPath)
 	assert.Equal(t, 1800, cfg.SessionTTLSeconds)
 	assert.Equal(t, 1.0, cfg.Defaults.CPULimit)
 	assert.Equal(t, 512, cfg.Defaults.MemLimitMB)

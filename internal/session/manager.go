@@ -2,6 +2,8 @@ package session
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +61,21 @@ func (m *Manager) removeSessionLock(id string) {
 // CleanupSessionLock removes the mutex for a session (used by reaper).
 func (m *Manager) CleanupSessionLock(id string) {
 	m.removeSessionLock(id)
+}
+
+// imageNamePattern allows only safe path components: alphanumeric, hyphen, underscore.
+// Prevents path traversal when image is used in filepath.Join(imageDir, image, ...).
+var imageNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+// isImageNameSafe returns true if the image name is safe for use in file paths.
+func isImageNameSafe(image string) bool {
+	if image == "" || len(image) > 64 {
+		return false
+	}
+	if strings.Contains(image, "..") || strings.ContainsAny(image, "/\\") {
+		return false
+	}
+	return imageNamePattern.MatchString(image)
 }
 
 // isImageAllowed checks if an image is in the allowed list.
