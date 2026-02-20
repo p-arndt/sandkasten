@@ -59,13 +59,13 @@ source ~/.bashrc
 
 ## Step 3: Clone and Build
 
-```bash
-# Clone (IMPORTANT: clone inside WSL filesystem, not /mnt/c/)
-cd ~
-git clone https://github.com/yourusername/sandkasten
-cd sandkasten
+> [!IMPORTANT]
+> Clone inside the WSL filesystem (e.g. `~/sandkasten`), not on `/mnt/c/`. Building on NTFS can cause issues.
 
-# Build all binaries
+```bash
+cd ~
+git clone https://github.com/p-arndt/sandkasten
+cd sandkasten
 task build
 ```
 
@@ -74,25 +74,23 @@ This creates:
 - `bin/sandkasten` - The daemon
 - `bin/imgbuilder` - Image management tool
 
-## Step 4: Import an Image
+## Step 4: Create an Image
 
-You need at least one rootfs image. Easiest way is to export from Docker:
+You need at least one rootfs image. Preferred: pull from a registry (no Docker daemon required):
 
 ```bash
-# Create a container (this is just for exporting the rootfs)
+# Pull from registry (recommended)
+sudo ./bin/sandkasten image pull --name python python:3.12-slim
+./bin/sandkasten image list
+```
+
+Alternatively, export from Docker and import with imgbuilder:
+
+```bash
 docker create --name temp python:3.12-slim
-
-# Export rootfs
 docker export temp | gzip > /tmp/python.tar.gz
-
-# Cleanup container
 docker rm temp
-
-# Import into sandkasten
 sudo ./bin/imgbuilder import --name python --tar /tmp/python.tar.gz
-
-# Verify
-./bin/imgbuilder list
 ```
 
 ## Step 5: Create Configuration
@@ -113,6 +111,9 @@ EOF
 ```
 
 ## Step 6: Create Data Directories
+
+> [!IMPORTANT]
+> Use a path on the **Linux filesystem** (e.g. `/var/lib/sandkasten`). Do not use `/mnt/c/...`—NTFS does not support overlayfs.
 
 ```bash
 sudo mkdir -p /var/lib/sandkasten/{images,sessions,workspaces}

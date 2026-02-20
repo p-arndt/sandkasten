@@ -48,7 +48,8 @@ async with SandboxClient(base_url="...", api_key="...") as client:
 - overlayfs support
 - Go 1.24+ (for building)
 
-> **Note:** macOS is not supported. Use a Linux VM or WSL2.
+> [!NOTE]
+> macOS is not supported. Use a Linux VM or WSL2.
 
 ---
 
@@ -127,8 +128,10 @@ Useful commands:
 sudo ./bin/sandkasten stop   # stop daemon when run with daemon -d
 ```
 
-When running in foreground, stop with **Ctrl+C**.  
-**Production:** set a strong `api_key` (or `SANDKASTEN_API_KEY`). The daemon refuses to bind to a non-loopback address without an API key.
+When running in foreground, stop with **Ctrl+C**.
+
+> [!IMPORTANT]
+> **Production:** Set a strong `api_key` (or `SANDKASTEN_API_KEY`). The daemon refuses to bind to a non-loopback address without an API key.
 
 ### 6. Verify
 
@@ -157,12 +160,14 @@ mkdir -p /var/lib/sandkasten
 docker compose up -d
 ```
 
-The stack uses the repo’s `Dockerfile` and `docker-compose.yml` (mounts `./sandkasten.yaml` and `/var/lib/sandkasten`). The container runs privileged so the daemon can create sandboxes. API and dashboard on port 8080.
+> [!TIP]
+> The stack uses the repo’s `Dockerfile` and `docker-compose.yml` (mounts `./sandkasten.yaml` and `/var/lib/sandkasten`). The container runs privileged so the daemon can create sandboxes. API and dashboard on port 8080. Ensure an image exists for `default_image` (e.g. pull `python` before starting or via the daemon inside the container).
 
 ## Documentation
 
 | Guide | Description |
 |-------|-------------|
+| [Docs index](./docs/index.md) | Documentation entry point |
 | [Quickstart](./docs/quickstart.md) | Get running in 5 minutes |
 | [OpenAI Agents SDK](./docs/openai-agents.md) | Use Sandkasten as tools (exec, read, write) with the OpenAI Agents SDK |
 | [Windows / WSL2](./docs/windows.md) | Detailed Windows instructions |
@@ -194,35 +199,14 @@ Pull from a registry (recommended) or build custom images; see [Configuration](.
 
 ## Configuration
 
-After `sandkasten init`, edit `sandkasten.yaml`. Minimal config:
-
-```yaml
-listen: "127.0.0.1:8080"
-api_key: "sk-your-secret-key"
-data_dir: "/var/lib/sandkasten"
-```
-
-See [Configuration Guide](./docs/configuration.md) for all options.
+Edit `sandkasten.yaml` (see [Quick Start](#4-configure) for minimal setup). Full reference: [Configuration Guide](./docs/configuration.md).
 
 ## WSL2 Support
 
-Sandkasten runs on Windows via WSL2:
+Sandkasten runs on Windows via WSL2. See [Windows / WSL2 Guide](./docs/windows.md) for full setup.
 
-```powershell
-# In PowerShell
-wsl --install -d Ubuntu-22.04
-
-# In WSL
-cd /mnt/c/path/to/sandkasten
-task build
-sudo ./bin/sandkasten --config sandkasten.yaml
-```
-
-**Important:** Store data inside WSL's filesystem (not `/mnt/c`):
-```yaml
-data_dir: "/var/lib/sandkasten"  # Correct - uses ext4
-# data_dir: "/mnt/c/sandkasten"  # Wrong - NTFS doesn't support overlayfs
-```
+> [!IMPORTANT]
+> Store `data_dir` inside WSL's Linux filesystem (e.g. `/var/lib/sandkasten`), not on NTFS (`/mnt/c/...`). NTFS does not support overlayfs.
 
 ## SDKs
 

@@ -4,7 +4,9 @@ This guide shows how to give an [OpenAI Agents SDK](https://openai.github.io/ope
 
 ## Prerequisites
 
-- Sandkasten daemon running (e.g. `sudo ./bin/sandkasten --config sandkasten.yaml`)
+> [!NOTE]
+> The Sandkasten daemon must be running (see [Quickstart](./quickstart.md)). Use the same `api_key` and `default_image` (e.g. `python`) as in your config.
+
 - Python 3.10+ with `openai-agents` and `sandkasten` installed
 
 ```bash
@@ -161,8 +163,9 @@ python agent_demo.py
 
 ## Streaming and conversation history
 
-- **Streaming:** Use `Runner.run_streamed()` for token-by-token output. See the [OpenAI Agents streaming guide](https://openai.github.io/openai-agents-python/streaming/).
-- **Sessions:** Use `SQLiteSession` (or another session backend) so the agent keeps conversation context across turns. See the [Sessions guide](https://openai.github.io/openai-agents-python/sessions/).
+> [!TIP]
+> - **Streaming:** Use `Runner.run_streamed()` for token-by-token output. See the [OpenAI Agents streaming guide](https://openai.github.io/openai-agents-python/streaming/).
+> - **Sessions:** Use `SQLiteSession` so the agent keeps conversation context across turns. See the [Sessions guide](https://openai.github.io/openai-agents-python/sessions/).
 
 ## Example agents in this repo
 

@@ -2,7 +2,8 @@
 
 Complete HTTP API documentation for Sandkasten.
 
-**CLI:** List sessions with `./bin/sandkasten ps`. Run the daemon in the background with `./bin/sandkasten daemon -d`; stop it with `sudo ./bin/sandkasten stop` (or **Ctrl+C** if in foreground). Validate security baseline with `./bin/sandkasten security --config sandkasten.yaml`.
+> [!NOTE]
+> **CLI:** List sessions with `./bin/sandkasten ps`. Run the daemon in the background with `./bin/sandkasten daemon -d`; stop it with `sudo ./bin/sandkasten stop`. Validate security with `./bin/sandkasten security --config sandkasten.yaml`.
 
 ## Authentication
 

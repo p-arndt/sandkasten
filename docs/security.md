@@ -67,7 +67,8 @@ Recommended setting:
 
 ## Security Validation Command
 
-Run the built-in baseline checker:
+> [!IMPORTANT]
+> Run the built-in baseline checker after any config change:
 
 ```bash
 ./bin/sandkasten security --config sandkasten.yaml
@@ -94,5 +95,5 @@ It verifies high-impact controls such as:
 
 ## Important Limitations
 
-No sandbox can provide an absolute guarantee against kernel-level breakout.
-Sandkasten uses layered defenses (namespaces, cgroups, capabilities drop, no-new-privs, seccomp, readonly rootfs), which significantly reduce risk, but should still be treated as a defense-in-depth system.
+> [!CAUTION]
+> No sandbox can provide an absolute guarantee against kernel-level breakout. Sandkasten uses layered defenses (namespaces, cgroups, capabilities drop, no-new-privs, seccomp, readonly rootfs), which significantly reduce risk—treat it as defense-in-depth, not a full security boundary.

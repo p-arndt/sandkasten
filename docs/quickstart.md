@@ -8,7 +8,8 @@ Get Sandkasten running in 5 minutes. This guide walks through **build → images
 - cgroups v2 (default on modern systems)
 - Go 1.24+ (for building)
 
-> **Note:** macOS is not supported. Use a Linux VM or WSL2.
+> [!NOTE]
+> macOS is not supported. Use a Linux VM or WSL2.
 
 ## Complete setup (step by step)
 
@@ -70,15 +71,8 @@ data_dir: "/var/lib/sandkasten"
 default_image: "python"
 ```
 
-If you did **not** run `init`, create the data dirs and config manually:
-
-```bash
-sudo mkdir -p /var/lib/sandkasten/images
-sudo mkdir -p /var/lib/sandkasten/sessions
-sudo mkdir -p /var/lib/sandkasten/workspaces
-```
-
-Create `sandkasten.yaml` with the same content as above. See [Configuration](./configuration.md) for all options.
+> [!NOTE]
+> If you did **not** run `init`, create the data dirs manually: `sudo mkdir -p /var/lib/sandkasten/{images,sessions,workspaces}` and create `sandkasten.yaml` with the content above. See [Configuration](./configuration.md) for all options.
 
 ### 5. Start the daemon
 
@@ -108,7 +102,8 @@ Once you see a healthy response and `ps` works, you can create sessions and run 
 
 ## Your First Session
 
-Use the same **api_key** as in your `sandkasten.yaml` (e.g. `sk-test`). Use an **image** you created (e.g. `python` or `base`).
+> [!IMPORTANT]
+> Use the same **api_key** as in your `sandkasten.yaml` (e.g. `sk-test`) and an **image** you pulled (e.g. `python` or `base`).
 
 ### Using cURL
 
@@ -221,17 +216,8 @@ If not, check your kernel boot parameters or use a newer distro.
 
 ### "overlayfs: upper fs does not support xattrs"
 
-This happens when using NTFS (e.g., `/mnt/c` in WSL2).
-
-**Solution:** Store data inside WSL's Linux filesystem:
-
-```yaml
-# Correct
-data_dir: "/var/lib/sandkasten"
-
-# Wrong (NTFS doesn't support overlayfs properly)
-data_dir: "/mnt/c/sandkasten"
-```
+> [!WARNING]
+> This happens when `data_dir` is on NTFS (e.g. `/mnt/c` in WSL2). Store data inside WSL's Linux filesystem: `data_dir: "/var/lib/sandkasten"`. Do not use `/mnt/c/...`.
 
 ### "permission denied" / namespace errors
 
@@ -258,11 +244,7 @@ Use the same API key in `sandkasten.yaml` and in your requests (e.g. `Authorizat
 
 ## WSL2 Tips
 
-1. **Use WSL2, not WSL1** - WSL1 doesn't support cgroups v2
-2. **Store data in Linux filesystem** - Use `/var/lib/sandkasten`, not `/mnt/c/...`
-3. **Run daemon in WSL** - Access from Windows via `localhost:8080`
-
-```powershell
-# From PowerShell, access the daemon running in WSL
-curl http://localhost:8080/healthz
-```
+> [!TIP]
+> - Use **WSL2**, not WSL1 (WSL1 doesn't support cgroups v2).
+> - Store data in the Linux filesystem: `/var/lib/sandkasten`, not `/mnt/c/...`.
+> - Run the daemon in WSL; access from Windows at `http://localhost:8080`.

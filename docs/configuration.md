@@ -62,7 +62,10 @@ security:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `listen` | string | `127.0.0.1:8080` | Host and port to bind. For production, use `127.0.0.1` and put a reverse proxy (with TLS) in front, or ensure `api_key` is set if binding to `0.0.0.0`. |
-| `api_key` | string | `""` | API key. **Empty = open access (dev only).** Never leave empty in production or when binding to a non-loopback address (e.g. `0.0.0.0`); the daemon will refuse to start. |
+| `api_key` | string | `""` | API key. Empty = open access (dev only). |
+
+> [!WARNING]
+> Never leave `api_key` empty when binding to a non-loopback address (e.g. `0.0.0.0`). The daemon will refuse to start. For production, use a strong secret and bind to `127.0.0.1` behind a reverse proxy.
 
 ### Data Storage
 
@@ -71,7 +74,8 @@ security:
 | `data_dir` | string | `/var/lib/sandkasten` | Base directory for all data |
 | `db_path` | string | `<data_dir>/sandkasten.db` | SQLite database path |
 
-> **Important on WSL2:** Store `data_dir` inside the Linux filesystem (e.g., `/var/lib/sandkasten`), not on NTFS (`/mnt/c/...`). NTFS doesn't support overlayfs properly.
+> [!IMPORTANT]
+> **WSL2:** Store `data_dir` inside the Linux filesystem (e.g. `/var/lib/sandkasten`), not on NTFS (`/mnt/c/...`). NTFS does not support overlayfs properly.
 
 ### Images
 
@@ -137,7 +141,8 @@ security:
 |--------|------|---------|-------------|
 | `seccomp` | string | `off` | Seccomp profile (`off`, `mvp`, or `strict`) |
 
-Use `./bin/sandkasten security --config sandkasten.yaml` to validate your runtime security baseline.
+> [!TIP]
+> Run `./bin/sandkasten security --config sandkasten.yaml` to validate your runtime security baseline.
 
 ## Environment Variables
 
