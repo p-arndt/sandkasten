@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,6 +38,9 @@ func (m *Manager) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int
 
 	if resp.Type == protocol.ResponseError {
 		return nil, fmt.Errorf("runner error: %s", resp.Error)
+	}
+	if resp.ExitCode == -1 && strings.HasPrefix(resp.Output, "timeout:") {
+		return nil, fmt.Errorf("%w: %s", ErrTimeout, resp.Output)
 	}
 
 	cwd := m.resolveCwd(resp.Cwd, sess.Cwd)
@@ -79,6 +83,9 @@ func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeout
 
 	if resp.Type == protocol.ResponseError {
 		return fmt.Errorf("runner error: %s", resp.Error)
+	}
+	if resp.ExitCode == -1 && strings.HasPrefix(resp.Output, "timeout:") {
+		return fmt.Errorf("%w: %s", ErrTimeout, resp.Output)
 	}
 
 	cwd := m.resolveCwd(resp.Cwd, sess.Cwd)

@@ -150,3 +150,34 @@ func TestExecTimeoutEnforcement(t *testing.T) {
 	_, err := mgr.Exec(context.Background(), "s1", "echo ok", 999999)
 	require.NoError(t, err)
 }
+
+func TestExecTimeoutMappedToErrTimeout(t *testing.T) {
+	mgr, rt, st := newTestManager()
+	sess := runningSession("s1")
+
+	st.On("GetSession", "s1").Return(sess, nil)
+	rt.On("Exec", mock.Anything, "s1", mock.Anything).Return(&protocol.Response{
+		Type:     protocol.ResponseExec,
+		ExitCode: -1,
+		Output:   "timeout: command exceeded 30s",
+	}, nil)
+
+	_, err := mgr.Exec(context.Background(), "s1", "sleep 999", 1000)
+	assert.ErrorIs(t, err, ErrTimeout)
+}
+
+func TestExecStreamTimeoutMappedToErrTimeout(t *testing.T) {
+	mgr, rt, st := newTestManager()
+	sess := runningSession("s1")
+
+	st.On("GetSession", "s1").Return(sess, nil)
+	rt.On("Exec", mock.Anything, "s1", mock.Anything).Return(&protocol.Response{
+		Type:     protocol.ResponseExec,
+		ExitCode: -1,
+		Output:   "timeout: command exceeded 30s",
+	}, nil)
+
+	chunkChan := make(chan ExecChunk, 1)
+	err := mgr.ExecStream(context.Background(), "s1", "sleep 999", 1000, chunkChan)
+	assert.ErrorIs(t, err, ErrTimeout)
+}

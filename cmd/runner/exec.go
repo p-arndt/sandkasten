@@ -16,6 +16,10 @@ func (s *server) handleExec(req protocol.Request) protocol.Response {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if len(req.Cmd) > protocol.MaxExecCmdBytes {
+		return errorResponse(req.ID, fmt.Sprintf("command too large: %d bytes (max %d); write script via fs/write and run a short exec", len(req.Cmd), protocol.MaxExecCmdBytes))
+	}
+
 	timeout := getTimeout(req.TimeoutMs)
 
 	// Drain any pending output

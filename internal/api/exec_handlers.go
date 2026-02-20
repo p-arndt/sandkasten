@@ -25,7 +25,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateExecRequest(req); err != nil {
-		writeValidationError(w, err.Error(), nil)
+		writeValidationError(w, err.Error(), validationDetails(err))
 		return
 	}
 	s.logger.Debug("exec", "session_id", id, "cmd", req.Cmd, "timeout_ms", req.TimeoutMs)
@@ -52,7 +52,7 @@ func (s *Server) handleExecStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := validateExecRequest(req); err != nil {
-		writeValidationError(w, err.Error(), nil)
+		writeValidationError(w, err.Error(), validationDetails(err))
 		return
 	}
 

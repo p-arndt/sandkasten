@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -105,6 +106,11 @@ func TestValidateExecRequest(t *testing.T) {
 			name:    "timeout too large",
 			req:     execRequest{Cmd: "ls", TimeoutMs: 600001},
 			wantErr: "timeout_ms must not exceed 600000",
+		},
+		{
+			name:    "cmd too large",
+			req:     execRequest{Cmd: strings.Repeat("x", 16*1024+1)},
+			wantErr: "cmd is too large",
 		},
 	}
 

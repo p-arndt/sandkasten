@@ -8,6 +8,26 @@ import (
 	"github.com/p-arndt/sandkasten/protocol"
 )
 
+type validationError struct {
+	message string
+	details map[string]interface{}
+}
+
+func (e *validationError) Error() string {
+	return e.message
+}
+
+func validationDetails(err error) map[string]interface{} {
+	if err == nil {
+		return nil
+	}
+	ve, ok := err.(*validationError)
+	if !ok {
+		return nil
+	}
+	return ve.details
+}
+
 var (
 	// sessionIDPattern matches valid session IDs: first 12 chars of UUID (8 hex + "-" + 3 hex, as in session.Manager Create).
 	// Prevents path traversal when id is used in filepath.Join(dataDir, "sessions", id).
@@ -90,6 +110,18 @@ func validateCreateSessionRequest(req createSessionRequest) error {
 func validateExecRequest(req execRequest) error {
 	if req.Cmd == "" {
 		return fmt.Errorf("cmd is required")
+	}
+
+	cmdBytes := len(req.Cmd)
+	if cmdBytes > protocol.MaxExecCmdBytes {
+		return &validationError{
+			message: fmt.Sprintf("cmd is too large (%d bytes), max is %d bytes", cmdBytes, protocol.MaxExecCmdBytes),
+			details: map[string]interface{}{
+				"cmd_bytes":      cmdBytes,
+				"max_cmd_bytes":  protocol.MaxExecCmdBytes,
+				"recommendation": "use /fs/write to upload script, then run a short exec command",
+			},
+		}
 	}
 
 	if req.TimeoutMs < 0 {
