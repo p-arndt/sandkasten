@@ -109,7 +109,7 @@ func TestValidateExecRequest(t *testing.T) {
 		},
 		{
 			name:    "cmd too large",
-			req:     execRequest{Cmd: strings.Repeat("x", 16*1024+1)},
+			req:     execRequest{Cmd: strings.Repeat("x", 1024*1024+1)},
 			wantErr: "cmd is too large",
 		},
 	}

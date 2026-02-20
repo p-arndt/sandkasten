@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -26,12 +27,12 @@ func (m *Manager) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int
 
 	execID := uuid.New().String()[:8]
 
-	resp, err := m.runtime.Exec(ctx, sess.ID, protocol.Request{
-		ID:        execID,
-		Type:      protocol.RequestExec,
-		Cmd:       cmd,
-		TimeoutMs: timeoutMs,
-	})
+	execReq, err := m.prepareExecRequest(ctx, sess.ID, execID, cmd, timeoutMs)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := m.runtime.Exec(ctx, sess.ID, execReq)
 	if err != nil {
 		return nil, fmt.Errorf("exec: %w", err)
 	}
@@ -71,12 +72,12 @@ func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeout
 	execID := uuid.New().String()[:8]
 	startTime := time.Now()
 
-	resp, err := m.runtime.Exec(ctx, sess.ID, protocol.Request{
-		ID:        execID,
-		Type:      protocol.RequestExec,
-		Cmd:       cmd,
-		TimeoutMs: timeoutMs,
-	})
+	execReq, err := m.prepareExecRequest(ctx, sess.ID, execID, cmd, timeoutMs)
+	if err != nil {
+		return err
+	}
+
+	resp, err := m.runtime.Exec(ctx, sess.ID, execReq)
 	if err != nil {
 		return fmt.Errorf("exec: %w", err)
 	}
@@ -102,6 +103,43 @@ func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeout
 	}
 
 	return nil
+}
+
+func (m *Manager) prepareExecRequest(ctx context.Context, sessionID, execID, cmd string, timeoutMs int) (protocol.Request, error) {
+	if len(cmd) <= protocol.MaxExecInlineCmdBytes {
+		return protocol.Request{
+			ID:        execID,
+			Type:      protocol.RequestExec,
+			Cmd:       cmd,
+			TimeoutMs: timeoutMs,
+		}, nil
+	}
+
+	scriptPath := fmt.Sprintf(".sandkasten/exec-%s.sh", execID)
+	encoded := base64.StdEncoding.EncodeToString([]byte(cmd))
+	writeReq := buildWriteRequest(scriptPath, []byte(encoded), true)
+	writeResp, err := m.runtime.Exec(ctx, sessionID, writeReq)
+	if err != nil {
+		return protocol.Request{}, fmt.Errorf("stage exec script: %w", err)
+	}
+	if writeResp.Type == protocol.ResponseError {
+		return protocol.Request{}, fmt.Errorf("stage exec script: runner error: %s", writeResp.Error)
+	}
+
+	absScriptPath := "/workspace/" + scriptPath
+	quotedPath := shellSingleQuote(absScriptPath)
+	stagedCmd := fmt.Sprintf("bash %s; __sandkasten_rc=$?; rm -f %s; exit $__sandkasten_rc", quotedPath, quotedPath)
+
+	return protocol.Request{
+		ID:        execID,
+		Type:      protocol.RequestExec,
+		Cmd:       stagedCmd,
+		TimeoutMs: timeoutMs,
+	}, nil
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 // validateSession checks if a session exists and is valid for execution.

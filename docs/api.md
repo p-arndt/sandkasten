@@ -130,6 +130,8 @@ POST /v1/sessions/{id}/exec
 - Output is combined stdout+stderr
 - Truncated after 1MB
 - Returns when command completes
+- Large commands are supported: commands over 16 KiB are staged as a temporary script in `/workspace/.sandkasten/` and then executed via a short command
+- Maximum `cmd` size is 1 MiB; larger payloads return `400 INVALID_REQUEST` with guidance to use `/fs/write`
 
 ### Execute Command (Streaming)
 
@@ -161,6 +163,7 @@ data: {"exit_code":0,"cwd":"/workspace","duration_ms":1234}
 - Real-time output for long commands
 - Same persistent shell semantics
 - Client must support SSE
+- Large commands are supported with the same staging behavior as blocking exec (inline threshold 16 KiB, API limit 1 MiB)
 
 See [Streaming Guide](./features/streaming.md) for details.
 

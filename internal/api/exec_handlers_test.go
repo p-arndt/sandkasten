@@ -120,7 +120,7 @@ func TestHandleExec_CmdTooLargeIncludesDetails(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	body := fmt.Sprintf(`{"cmd":"%s"}`, strings.Repeat("x", 16*1024+1))
+	body := fmt.Sprintf(`{"cmd":"%s"}`, strings.Repeat("x", 1024*1024+1))
 	req := httptest.NewRequest("POST", "/v1/sessions/a1b2c3d4-e5f/exec", strings.NewReader(body))
 	req.SetPathValue("id", "a1b2c3d4-e5f")
 	req.Header.Set("Content-Type", "application/json")
@@ -133,7 +133,7 @@ func TestHandleExec_CmdTooLargeIncludesDetails(t *testing.T) {
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeInvalidRequest, apiErr.Code)
-	assert.Equal(t, float64(16*1024+1), apiErr.Details["cmd_bytes"])
-	assert.Equal(t, float64(16*1024), apiErr.Details["max_cmd_bytes"])
+	assert.Equal(t, float64(1024*1024+1), apiErr.Details["cmd_bytes"])
+	assert.Equal(t, float64(1024*1024), apiErr.Details["max_cmd_bytes"])
 	assert.Contains(t, apiErr.Details["recommendation"], "fs/write")
 }

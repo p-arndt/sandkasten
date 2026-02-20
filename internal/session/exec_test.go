@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,4 +181,45 @@ func TestExecStreamTimeoutMappedToErrTimeout(t *testing.T) {
 	chunkChan := make(chan ExecChunk, 1)
 	err := mgr.ExecStream(context.Background(), "s1", "sleep 999", 1000, chunkChan)
 	assert.ErrorIs(t, err, ErrTimeout)
+}
+
+func TestExecLargeCommandUsesStagedPath(t *testing.T) {
+	mgr, rt, st := newTestManager()
+	sess := runningSession("s1")
+	largeCmd := strings.Repeat("x", protocol.MaxExecInlineCmdBytes+1)
+
+	st.On("GetSession", "s1").Return(sess, nil)
+	rt.On("Exec", mock.Anything, "s1", mock.MatchedBy(func(req protocol.Request) bool {
+		return req.Type == protocol.RequestWrite && strings.HasPrefix(req.Path, ".sandkasten/exec-") && req.ContentBase64 != ""
+	})).Return(&protocol.Response{Type: protocol.ResponseWrite, OK: true}, nil).Once()
+	rt.On("Exec", mock.Anything, "s1", mock.MatchedBy(func(req protocol.Request) bool {
+		return req.Type == protocol.RequestExec && strings.Contains(req.Cmd, "bash '/workspace/.sandkasten/exec-") && req.TimeoutMs == 5000
+	})).Return(&protocol.Response{Type: protocol.ResponseExec, ExitCode: 0, Cwd: "/workspace", Output: "ok", DurationMs: 10}, nil).Once()
+	st.On("UpdateSessionActivity", "s1", "/workspace", mock.AnythingOfType("time.Time")).Return(nil)
+
+	result, err := mgr.Exec(context.Background(), "s1", largeCmd, 5000)
+	require.NoError(t, err)
+	assert.Equal(t, "ok", result.Output)
+}
+
+func TestExecStreamLargeCommandUsesStagedPath(t *testing.T) {
+	mgr, rt, st := newTestManager()
+	sess := runningSession("s1")
+	largeCmd := strings.Repeat("x", protocol.MaxExecInlineCmdBytes+1)
+
+	st.On("GetSession", "s1").Return(sess, nil)
+	rt.On("Exec", mock.Anything, "s1", mock.MatchedBy(func(req protocol.Request) bool {
+		return req.Type == protocol.RequestWrite && strings.HasPrefix(req.Path, ".sandkasten/exec-") && req.ContentBase64 != ""
+	})).Return(&protocol.Response{Type: protocol.ResponseWrite, OK: true}, nil).Once()
+	rt.On("Exec", mock.Anything, "s1", mock.MatchedBy(func(req protocol.Request) bool {
+		return req.Type == protocol.RequestExec && strings.Contains(req.Cmd, "bash '/workspace/.sandkasten/exec-") && req.TimeoutMs == 5000
+	})).Return(&protocol.Response{Type: protocol.ResponseExec, ExitCode: 0, Cwd: "/workspace", Output: "stream", DurationMs: 12}, nil).Once()
+	st.On("UpdateSessionActivity", "s1", "/workspace", mock.AnythingOfType("time.Time")).Return(nil)
+
+	chunkChan := make(chan ExecChunk, 1)
+	err := mgr.ExecStream(context.Background(), "s1", largeCmd, 5000, chunkChan)
+	require.NoError(t, err)
+	chunk := <-chunkChan
+	assert.True(t, chunk.Done)
+	assert.Equal(t, "stream", chunk.Output)
 }

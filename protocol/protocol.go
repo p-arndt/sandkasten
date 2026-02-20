@@ -75,9 +75,12 @@ type ReadyMessage struct {
 // MaxOutputBytes is the default cap on exec output.
 const MaxOutputBytes = 5 * 1024 * 1024 // 5 MB
 
-// MaxExecCmdBytes is the max size of an exec cmd payload.
-// Larger scripts should be written via fs/write and executed via a short exec command.
-const MaxExecCmdBytes = 16 * 1024 // 16 KiB
+// MaxExecInlineCmdBytes is the max size of an exec command sent directly to runner PTY.
+const MaxExecInlineCmdBytes = 16 * 1024 // 16 KiB
+
+// MaxExecCmdBytes is the max size of an exec cmd payload accepted by API.
+// Commands above the inline limit are staged as files and then executed.
+const MaxExecCmdBytes = 1 * 1024 * 1024 // 1 MiB
 
 // DefaultMaxReadBytes is the default cap on file reads.
 const DefaultMaxReadBytes = 10 * 1024 * 1024 // 10 MB
