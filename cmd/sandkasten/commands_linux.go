@@ -98,6 +98,8 @@ func printMainUsage() {
   sandkasten [--config <path>] [--log-level <level>]      Run daemon (foreground)
   sandkasten daemon [-d|--detach] [options]              Run daemon (optionally in background)
   sandkasten ps [--config <path>] [--host <url>]          List sessions (like docker ps)
+  sandkasten stop [--config <path>] [--data-dir <dir>]     Stop daemon (when run with daemon -d)
+  sandkasten logs [--config <path>]                       Tail daemon logs
   sandkasten doctor [--data-dir <dir>]                    Run environment checks
   sandkasten init [options]                               Bootstrap config and data dir
   sandkasten image <command> [options]                    Manage images
@@ -195,17 +197,28 @@ func runPs(args []string) int {
 func daemonize(cfg *config.Config) error {
 	childArgs := filterDetachArgs(os.Args[1:])
 	cmd := exec.Command(os.Args[0], childArgs...)
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+
+	runDir := filepath.Join(cfg.DataDir, "run")
+	if err := os.MkdirAll(runDir, 0755); err != nil {
+		return fmt.Errorf("mkdir run: %w", err)
+	}
+
+	logPath := filepath.Join(runDir, "sandkasten.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
+	// We don't close logFile here because it's inherited by the child
+
 	null, err := os.OpenFile("/dev/null", os.O_RDWR, 0)
 	if err != nil {
 		return fmt.Errorf("open /dev/null: %w", err)
 	}
 	defer null.Close()
+
 	cmd.Stdin = null
-	cmd.Stdout = null
-	cmd.Stderr = null
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Env = append(os.Environ(), "SANDKASTEN_DETACHED=1")
 	if err := cmd.Start(); err != nil {
@@ -227,6 +240,44 @@ func filterDetachArgs(args []string) []string {
 	return out
 }
 
+func runLogs(args []string) int {
+	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	cfgPath := fs.String("config", "", "path to sandkasten.yaml")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	pathValue := *cfgPath
+	if pathValue == "" {
+		for _, p := range []string{"sandkasten.yaml", "/etc/sandkasten/sandkasten.yaml"} {
+			if _, err := os.Stat(p); err == nil {
+				pathValue = p
+				break
+			}
+		}
+	}
+	cfg, err := config.Load(pathValue)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "logs: load config: %v\n", err)
+		return 1
+	}
+
+	logFile := filepath.Join(cfg.DataDir, "run", "sandkasten.log")
+	if _, err := os.Stat(logFile); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "logs: log file %s does not exist\n", logFile)
+		return 1
+	}
+
+	cmd := exec.Command("tail", "-f", logFile)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return 1
+	}
+	return 0
+}
+
 // writePidFileIfDetached writes the PID file when running as the detached daemon child.
 func writePidFileIfDetached(cfg *config.Config) error {
 	if os.Getenv("SANDKASTEN_DETACHED") != "1" {
@@ -238,6 +289,69 @@ func writePidFileIfDetached(cfg *config.Config) error {
 	}
 	pidPath := filepath.Join(runDir, "sandkasten.pid")
 	return os.WriteFile(pidPath, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0644)
+}
+
+// runStop stops the daemon when it was started with daemon -d (sends SIGTERM, removes PID file).
+func runStop(args []string) int {
+	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	cfgPath := fs.String("config", "", "path to sandkasten.yaml (used to get data_dir)")
+	dataDirFlag := fs.String("data-dir", "", "sandkasten data directory (overrides config)")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	dataDir := *dataDirFlag
+	if dataDir == "" {
+		path := *cfgPath
+		if path == "" {
+			for _, p := range []string{"sandkasten.yaml", "/etc/sandkasten/sandkasten.yaml"} {
+				if _, err := os.Stat(p); err == nil {
+					path = p
+					break
+				}
+			}
+		}
+		cfg, err := config.Load(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "stop: load config: %v\n", err)
+			return 1
+		}
+		dataDir = cfg.DataDir
+	}
+	if dataDir == "" {
+		dataDir = envOrDefault("SANDKASTEN_DATA_DIR", defaultDataDir)
+	}
+
+	pidPath := filepath.Join(dataDir, "run", "sandkasten.pid")
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "stop: no PID file at %s (daemon not running detached?)\n", pidPath)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "stop: read pid file: %v\n", err)
+		return 1
+	}
+
+	var pid int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &pid); err != nil || pid <= 0 {
+		fmt.Fprintf(os.Stderr, "stop: invalid PID in %s\n", pidPath)
+		_ = os.Remove(pidPath)
+		return 1
+	}
+
+	if err := unix.Kill(pid, unix.SIGTERM); err != nil {
+		if err == unix.ESRCH {
+			fmt.Fprintf(os.Stderr, "stop: process %d not running\n", pid)
+		} else {
+			fmt.Fprintf(os.Stderr, "stop: kill %d: %v\n", pid, err)
+			return 1
+		}
+	}
+	_ = os.Remove(pidPath)
+	fmt.Fprintf(os.Stderr, "stopped daemon (PID %d)\n", pid)
+	return 0
 }
 
 func runDoctor(args []string) int {

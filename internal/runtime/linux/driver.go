@@ -311,6 +311,46 @@ func (d *Driver) IsRunning(ctx context.Context, sessionID string) (bool, error) 
 	return d.isProcessRunning(state.InitPID)
 }
 
+func (d *Driver) Stats(ctx context.Context, sessionID string) (*protocol.SessionStats, error) {
+	statePath := filepath.Join(d.dataDir, "sessions", sessionID, "state.json")
+	state, err := d.readState(statePath)
+	if err != nil {
+		return nil, fmt.Errorf("read state: %w", err)
+	}
+
+	if state.CgroupPath == "" {
+		return nil, fmt.Errorf("no cgroup path for session")
+	}
+
+	stats := &protocol.SessionStats{}
+
+	// Read memory current
+	if data, err := os.ReadFile(filepath.Join(state.CgroupPath, "memory.current")); err == nil {
+		fmt.Sscanf(string(data), "%d", &stats.MemoryBytes)
+	}
+
+	// Read memory limit
+	if data, err := os.ReadFile(filepath.Join(state.CgroupPath, "memory.max")); err == nil {
+		val := strings.TrimSpace(string(data))
+		if val != "max" && val != "" {
+			fmt.Sscanf(val, "%d", &stats.MemoryLimit)
+		}
+	}
+
+	// Read cpu usage
+	if data, err := os.ReadFile(filepath.Join(state.CgroupPath, "cpu.stat")); err == nil {
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "usage_usec ") {
+				fmt.Sscanf(line, "usage_usec %d", &stats.CPUUsageUsec)
+				break
+			}
+		}
+	}
+
+	return stats, nil
+}
+
 func (d *Driver) isProcessRunning(pid int) (bool, error) {
 	if pid <= 0 {
 		return false, nil

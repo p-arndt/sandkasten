@@ -111,6 +111,12 @@ type SessionState struct {
 	RunnerSock string `json:"runner_sock"`
 }
 
+type SessionStats struct {
+	MemoryBytes  int64 `json:"memory_bytes"`
+	MemoryLimit  int64 `json:"memory_limit,omitempty"`
+	CPUUsageUsec int64 `json:"cpu_usage_usec"`
+}
+
 // SentinelBegin is the marker written before a command.
 const SentinelBegin = "__SANDKASTEN_BEGIN__"
 

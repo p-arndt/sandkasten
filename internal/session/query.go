@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"fmt"
+
+	"github.com/p-arndt/sandkasten/protocol"
 )
 
 func (m *Manager) Get(ctx context.Context, id string) (*SessionInfo, error) {
@@ -23,6 +25,17 @@ func (m *Manager) Get(ctx context.Context, id string) (*SessionInfo, error) {
 		CreatedAt:   sess.CreatedAt,
 		ExpiresAt:   sess.ExpiresAt,
 	}, nil
+}
+
+func (m *Manager) GetStats(ctx context.Context, id string) (*protocol.SessionStats, error) {
+	sess, err := m.store.GetSession(id)
+	if err != nil {
+		return nil, err
+	}
+	if sess == nil {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	return m.runtime.Stats(ctx, sess.ID)
 }
 
 func (m *Manager) List(ctx context.Context) ([]SessionInfo, error) {

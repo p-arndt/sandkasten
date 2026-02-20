@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/p-arndt/sandkasten/internal/session"
+	"github.com/p-arndt/sandkasten/protocol"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -23,6 +24,14 @@ func (m *MockSessionService) Get(ctx context.Context, id string) (*session.Sessi
 	args := m.Called(ctx, id)
 	if info := args.Get(0); info != nil {
 		return info.(*session.SessionInfo), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockSessionService) GetStats(ctx context.Context, id string) (*protocol.SessionStats, error) {
+	args := m.Called(ctx, id)
+	if stats := args.Get(0); stats != nil {
+		return stats.(*protocol.SessionStats), args.Error(1)
 	}
 	return nil, args.Error(1)
 }

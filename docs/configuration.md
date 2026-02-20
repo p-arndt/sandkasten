@@ -167,7 +167,7 @@ sudo ./bin/sandkasten --config sandkasten.yaml
 sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
 
-When running detached, the PID is written to `<data_dir>/run/sandkasten.pid`. Use `./bin/sandkasten ps` to list sessions (similar to `docker ps`).
+When running detached, the PID is written to `<data_dir>/run/sandkasten.pid`. Use `./bin/sandkasten ps` to list sessions (similar to `docker ps`). To stop the daemon: `sudo ./bin/sandkasten stop` (or **Ctrl+C** if running in foreground).
 
 ## Security Recommendations
 

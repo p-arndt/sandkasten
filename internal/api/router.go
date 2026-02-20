@@ -39,6 +39,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/sessions", s.handleCreateSession)
 	s.mux.HandleFunc("GET /v1/sessions", s.handleListSessions)
 	s.mux.HandleFunc("GET /v1/sessions/{id}", s.handleGetSession)
+	s.mux.HandleFunc("GET /v1/sessions/{id}/stats", s.handleGetSessionStats)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/exec", s.handleExec)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/exec/stream", s.handleExecStream)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/fs/write", s.handleWrite)

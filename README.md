@@ -69,7 +69,13 @@ List running sessions (like `docker ps`):
 ./bin/sandkasten ps
 ```
 
-When running detached, the daemon writes its PID to `<data_dir>/run/sandkasten.pid`.
+Stop the daemon when running in background:
+
+```bash
+sudo ./bin/sandkasten stop
+```
+
+When running detached, the daemon writes its PID to `<data_dir>/run/sandkasten.pid`. If you started the daemon in the foreground, use **Ctrl+C** to stop it.
 
 **Production:** Set `api_key` in your config (or `SANDKASTEN_API_KEY`). Leaving it empty is for development only; if you bind to a non-loopback address (e.g. `0.0.0.0`), the daemon will refuse to start without an API key.
 
@@ -331,8 +337,9 @@ task run        # Run daemon locally (foreground)
 ### CLI Commands
 
 ```bash
-./bin/sandkasten              # Run daemon in foreground
+./bin/sandkasten              # Run daemon in foreground (Ctrl+C to stop)
 ./bin/sandkasten daemon -d    # Run daemon in background (detached)
+./bin/sandkasten stop         # Stop daemon (when run with daemon -d)
 ./bin/sandkasten ps           # List sessions (like docker ps)
 ./bin/sandkasten doctor       # System checks
 ./bin/sandkasten init         # Bootstrap config and data dir

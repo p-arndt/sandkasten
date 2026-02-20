@@ -45,6 +45,10 @@ func main() {
 			os.Exit(runImage(os.Args[2:]))
 		case "ps":
 			os.Exit(runPs(os.Args[2:]))
+		case "stop":
+			os.Exit(runStop(os.Args[2:]))
+		case "logs":
+			os.Exit(runLogs(os.Args[2:]))
 		case "daemon":
 			os.Exit(runDaemon(os.Args[2:]))
 		}

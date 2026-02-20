@@ -3,11 +3,14 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/p-arndt/sandkasten/protocol"
 )
+
+var ansiRegex = regexp.MustCompile("[\u001b\u009b][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\\d]*)*)?\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PRZcf-ntqry=><~]))")
 
 func (s *server) handleExec(req protocol.Request) protocol.Response {
 	s.mu.Lock()
@@ -86,7 +89,14 @@ func (s *server) waitForCompletion(requestID, beginMarker, endMarker string, tim
 
 			// Guard against runaway output
 			if len(accumulated) > protocol.MaxOutputBytes*2 {
-				accumulated = accumulated[len(accumulated)-protocol.MaxOutputBytes:]
+				// Keep the first chunk (containing beginMarker) and the last chunk (for endMarker)
+				firstPart := accumulated[:protocol.MaxOutputBytes]
+				lastPart := accumulated[len(accumulated)-4096:]
+
+				newAccumulated := make([]byte, 0, len(firstPart)+len(lastPart))
+				newAccumulated = append(newAccumulated, firstPart...)
+				newAccumulated = append(newAccumulated, lastPart...)
+				accumulated = newAccumulated
 			}
 		}
 	}
@@ -154,78 +164,8 @@ func removeSentinelLines(s string) string {
 }
 
 // stripANSI removes ANSI escape sequences (CSI, OSC, DCS, etc.) so output is plain text.
-// Handles ESC (0x1b) and the single-byte CSI introducer 0x9b.
 func stripANSI(s string) string {
-	const (
-		esc = '\x1b'
-		csi = '\x9b' // single-byte CSI introducer (equivalent to ESC [)
-	)
-	var b strings.Builder
-	b.Grow(len(s))
-	i := 0
-	for i < len(s) {
-		if s[i] != esc && s[i] != csi {
-			b.WriteByte(s[i])
-			i++
-			continue
-		}
-		if s[i] == csi {
-			// Single-byte CSI: consume 0x9b then same as CSI sequence
-			i++
-			for i < len(s) && s[i] >= 0x20 && s[i] <= 0x3f {
-				i++
-			}
-			if i < len(s) && s[i] >= 0x40 && s[i] <= 0x7e {
-				i++
-			}
-			continue
-		}
-		// ESC
-		i++
-		if i >= len(s) {
-			break
-		}
-		switch s[i] {
-		case '[':
-			// CSI: ESC [ ... intermediate (0x20-0x2f) and parameters (0x30-0x3f) ... final (0x40-0x7e)
-			i++
-			for i < len(s) && s[i] >= 0x20 && s[i] <= 0x3f {
-				i++
-			}
-			if i < len(s) && s[i] >= 0x40 && s[i] <= 0x7e {
-				i++
-			}
-		case ']':
-			// OSC: ESC ] ... BEL (0x07) or ST (ESC \)
-			i++
-			for i < len(s) {
-				if s[i] == '\x07' {
-					i++
-					break
-				}
-				if i+1 < len(s) && s[i] == esc && s[i+1] == '\\' {
-					i += 2
-					break
-				}
-				i++
-			}
-		case 'P', 'X', '^', '_':
-			// DCS, SOS, PM, APC: skip until ST (ESC \)
-			i++
-			for i+1 < len(s) {
-				if s[i] == esc && s[i+1] == '\\' {
-					i += 2
-					break
-				}
-				i++
-			}
-		default:
-			if s[i] >= 0x40 && s[i] <= 0x5f {
-				i++
-			}
-		}
-	}
-	return b.String()
+	return ansiRegex.ReplaceAllString(s, "")
 }
 
 // extractOutput extracts command output between begin and end markers.

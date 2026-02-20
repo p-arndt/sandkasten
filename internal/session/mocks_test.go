@@ -40,6 +40,14 @@ func (m *MockRuntimeDriver) IsRunning(ctx context.Context, sessionID string) (bo
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockRuntimeDriver) Stats(ctx context.Context, sessionID string) (*protocol.SessionStats, error) {
+	args := m.Called(ctx, sessionID)
+	if stats := args.Get(0); stats != nil {
+		return stats.(*protocol.SessionStats), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockRuntimeDriver) Ping(ctx context.Context) error {
 	args := m.Called(ctx)
 	return args.Error(0)

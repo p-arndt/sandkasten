@@ -17,7 +17,9 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		path := r.URL.Path
 
 		// Skip auth for health check, SPA, and static assets only. /api/status requires auth.
-		if path == "/healthz" ||
+		if strings.HasPrefix(path, "/v1/") || path == "/api/status" {
+			// Require auth (proceed to check)
+		} else if path == "/healthz" ||
 			path == "/" ||
 			strings.HasPrefix(path, "/_app/") ||
 			strings.HasPrefix(path, "/sessions") ||

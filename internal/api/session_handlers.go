@@ -81,3 +81,18 @@ func (s *Server) handleDestroy(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
+
+func (s *Server) handleGetSessionStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := ValidateSessionID(id); err != nil {
+		writeValidationError(w, err.Error(), nil)
+		return
+	}
+	s.logger.Debug("get session stats", "session_id", id)
+	stats, err := s.manager.GetStats(r.Context(), id)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}

@@ -214,9 +214,10 @@ sudo rm -rf /var/lib/sandkasten/sessions/<id>
 
 **Start daemon:**
 ```bash
-sudo ./bin/sandkasten --config sandkasten.yaml          # foreground
+sudo ./bin/sandkasten --config sandkasten.yaml          # foreground (Ctrl+C to stop)
 sudo ./bin/sandkasten daemon -d --config sandkasten.yaml # background
-./bin/sandkasten ps   # list sessions (like docker ps)
+./bin/sandkasten ps    # list sessions (like docker ps)
+sudo ./bin/sandkasten stop   # stop daemon when run with daemon -d
 ```
 
 **Import image:**

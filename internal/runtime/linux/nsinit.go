@@ -57,6 +57,13 @@ func nsinitMain(cfg NsinitConfig) error {
 		return fmt.Errorf("make private: %w", err)
 	}
 
+	// pivot_root requires the new root to be a mount point
+	if err := unix.Mount(cfg.Mnt, cfg.Mnt, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+		return fmt.Errorf("bind mount new root: %w", err)
+	}
+	// Needs to be private for pivot_root
+	unix.Mount("", cfg.Mnt, "", unix.MS_PRIVATE|unix.MS_REC, "")
+
 	oldRoot := filepath.Join(cfg.Mnt, ".oldroot")
 	if err := os.MkdirAll(oldRoot, 0700); err != nil {
 		return fmt.Errorf("mkdir .oldroot: %w", err)
@@ -111,9 +118,6 @@ func nsinitMain(cfg NsinitConfig) error {
 	}
 
 	if cfg.GID > 0 {
-		if err := unix.Setgroups([]int{cfg.GID}); err != nil {
-			return fmt.Errorf("setgroups: %w", err)
-		}
 		if err := unix.Setgid(cfg.GID); err != nil {
 			return fmt.Errorf("setgid: %w", err)
 		}
@@ -167,6 +171,7 @@ func dropCapabilities() error {
 
 	for _, cap := range caps {
 		if err := unix.Prctl(unix.PR_CAPBSET_DROP, cap, 0, 0, 0); err != nil {
+			return fmt.Errorf("drop capability %d: %w", cap, err)
 		}
 	}
 	return nil
@@ -212,7 +217,14 @@ func LaunchNsinit(cfg NsinitConfig) (*exec.Cmd, *os.File, error) {
 		Cloneflags: syscall.CLONE_NEWNS |
 			syscall.CLONE_NEWPID |
 			syscall.CLONE_NEWUTS |
-			syscall.CLONE_NEWIPC,
+			syscall.CLONE_NEWIPC |
+			syscall.CLONE_NEWUSER,
+		UidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: 0, Size: 65536},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: 0, Size: 65536},
+		},
 	}
 
 	if cfg.NetworkNone {

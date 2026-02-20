@@ -81,6 +81,8 @@ sudo ./bin/sandkasten --config sandkasten.yaml
 sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
 
+To **stop** the daemon: if running in foreground, use **Ctrl+C**. If running in background, run `sudo ./bin/sandkasten stop`.
+
 ### 6. Verify It's Running
 
 ```bash

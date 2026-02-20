@@ -4,11 +4,13 @@ import (
 	"context"
 
 	"github.com/p-arndt/sandkasten/internal/session"
+	"github.com/p-arndt/sandkasten/protocol"
 )
 
 type SessionService interface {
 	Create(ctx context.Context, opts session.CreateOpts) (*session.SessionInfo, error)
 	Get(ctx context.Context, id string) (*session.SessionInfo, error)
+	GetStats(ctx context.Context, id string) (*protocol.SessionStats, error)
 	List(ctx context.Context) ([]session.SessionInfo, error)
 	Destroy(ctx context.Context, sessionID string) error
 	Exec(ctx context.Context, sessionID, cmd string, timeoutMs int) (*session.ExecResult, error)

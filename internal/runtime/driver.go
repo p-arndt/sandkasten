@@ -25,6 +25,7 @@ type Driver interface {
 	Exec(ctx context.Context, sessionID string, req protocol.Request) (*protocol.Response, error)
 	Destroy(ctx context.Context, sessionID string) error
 	IsRunning(ctx context.Context, sessionID string) (bool, error)
+	Stats(ctx context.Context, sessionID string) (*protocol.SessionStats, error)
 	Ping(ctx context.Context) error
 	Close() error
 }

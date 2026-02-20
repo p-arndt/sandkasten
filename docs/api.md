@@ -2,7 +2,7 @@
 
 Complete HTTP API documentation for Sandkasten.
 
-**CLI:** To list sessions from the command line (like `docker ps`), use `./bin/sandkasten ps`. The daemon can be run in the background with `./bin/sandkasten daemon -d`.
+**CLI:** List sessions with `./bin/sandkasten ps`. Run the daemon in the background with `./bin/sandkasten daemon -d`; stop it with `sudo ./bin/sandkasten stop` (or **Ctrl+C** if in foreground).
 
 ## Authentication
 

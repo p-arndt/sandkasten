@@ -32,7 +32,22 @@ func (m *Manager) ListWorkspaceFiles(ctx context.Context, workspaceID, dirPath s
 	safePath := m.safeWorkspacePath(dirPath)
 	fullPath := filepath.Join(workspacePath, safePath)
 
-	entries, err := os.ReadDir(fullPath)
+	realPath, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve path: %w", err)
+	}
+
+	realWorkspacePath, err := filepath.EvalSymlinks(workspacePath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace path: %w", err)
+	}
+
+	rel, err := filepath.Rel(realWorkspacePath, realPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("path escapes workspace")
+	}
+
+	entries, err := os.ReadDir(realPath)
 	if err != nil {
 		return nil, fmt.Errorf("read workspace dir: %w", err)
 	}
@@ -67,7 +82,13 @@ func (m *Manager) ReadWorkspaceFile(ctx context.Context, workspaceID, filePath s
 	if err != nil {
 		return "", false, fmt.Errorf("resolve path: %w", err)
 	}
-	rel, err := filepath.Rel(workspacePath, realPath)
+
+	realWorkspacePath, err := filepath.EvalSymlinks(workspacePath)
+	if err != nil {
+		return "", false, fmt.Errorf("resolve workspace path: %w", err)
+	}
+
+	rel, err := filepath.Rel(realWorkspacePath, realPath)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return "", false, fmt.Errorf("path escapes workspace")
 	}
