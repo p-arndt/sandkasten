@@ -1,6 +1,6 @@
 # Quickstart Guide
 
-Get Sandkasten running in 5 minutes.
+Get Sandkasten running in 5 minutes. This guide walks through **build → images → config → daemon → first session** so nothing is skipped.
 
 ## Prerequisites
 
@@ -10,124 +10,133 @@ Get Sandkasten running in 5 minutes.
 
 > **Note:** macOS is not supported. Use a Linux VM or WSL2.
 
-## Quick Start
+## Complete setup (step by step)
 
 ### 1. Build
 
 ```bash
-git clone https://github.com/yourusername/sandkasten
+git clone https://github.com/p-arndt/sandkasten
 cd sandkasten
 task build
 ```
 
-This builds:
-- `bin/sandkasten` - The daemon
-- `bin/runner` - Runner binary (embedded in sandboxes)
-- `bin/imgbuilder` - Image management tool
+This produces:
+- `bin/sandkasten` — daemon and CLI
+- `bin/runner` — runs inside sandboxes (embedded when creating images)
+- `bin/imgbuilder` — legacy image import tool
 
-### 2. Run Preflight + Bootstrap
+### 2. Preflight and bootstrap
 
 ```bash
-# Check your system (kernel/cgroups/overlayfs/data-dir hints)
+# Check kernel, cgroups, overlayfs, data-dir
 ./bin/sandkasten doctor
 
-# Check security baseline before exposing the API
+# Security baseline (api key, seccomp, limits)
 ./bin/sandkasten security --config sandkasten.yaml
 
-# Create sandkasten.yaml + data dirs + pull base image
+# Create sandkasten.yaml + data dirs + pull first image (name: base)
 sudo ./bin/sandkasten init --config sandkasten.yaml
 ```
 
-By default, `init` pulls `alpine:latest` into image name `base`.
+By default, `init` pulls **alpine:latest** as image name **base**. For Python/Node sessions or the example agents you need to pull more images (next step).
 
-Pull additional images without Docker:
+### 3. Create images
+
+Sessions run from an **image** (a rootfs). You must have at least one image. Pull from OCI registries without a Docker daemon:
 
 ```bash
+# Python (required for quickstart/agent examples)
 sudo ./bin/sandkasten image pull --name python python:3.12-slim
-```
 
-### 3. Verify Images
+# Optional: Node.js
+sudo ./bin/sandkasten image pull --name node node:22-slim
 
-```bash
+# List and validate
 ./bin/sandkasten image list
-
-# Validate
 ./bin/sandkasten image validate base
+./bin/sandkasten image validate python
 ```
 
-### 4. Create Configuration
+Image names (e.g. `python`, `node`, `base`) are what you use in config and API.
 
-If you already ran `sandkasten init`, skip this section.
+### 4. Configuration
 
-Create `sandkasten.yaml` manually:
+If you used `sandkasten init`, you already have `sandkasten.yaml`. Edit it and set **default_image** to an image you created (e.g. `python`), and set **api_key**:
 
 ```yaml
 listen: "127.0.0.1:8080"
-api_key: "sk-sandbox-quickstart"
+api_key: "sk-test"
 data_dir: "/var/lib/sandkasten"
-default_image: "base"
+default_image: "python"
 ```
 
-### 5. Start Daemon
+If you did **not** run `init`, create the data dirs and config manually:
 
 ```bash
-# Create data directory
 sudo mkdir -p /var/lib/sandkasten/images
 sudo mkdir -p /var/lib/sandkasten/sessions
 sudo mkdir -p /var/lib/sandkasten/workspaces
+```
 
-# Start daemon (requires root for namespace operations)
-# Foreground:
+Create `sandkasten.yaml` with the same content as above. See [Configuration](./configuration.md) for all options.
+
+### 5. Start the daemon
+
+```bash
+# Foreground (logs in terminal; Ctrl+C to stop)
 sudo ./bin/sandkasten --config sandkasten.yaml
 
-# Or run in background (like Docker):
+# Or background (like Docker)
 sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
 
-To **stop** the daemon: if running in foreground, use **Ctrl+C**. If running in background, run `sudo ./bin/sandkasten stop`.
-
-### 6. Verify It's Running
+Stop when running in background:
 
 ```bash
-# Check health
-curl http://localhost:8080/healthz
-
-# List sessions (like docker ps)
-./bin/sandkasten ps
-
-# Open dashboard
-open http://localhost:8080
+sudo ./bin/sandkasten stop
 ```
 
+### 6. Verify
+
+```bash
+curl http://localhost:8080/healthz
+./bin/sandkasten ps
+# Dashboard: http://localhost:8080
+```
+
+Once you see a healthy response and `ps` works, you can create sessions and run the example agent.
+
 ## Your First Session
+
+Use the same **api_key** as in your `sandkasten.yaml` (e.g. `sk-test`). Use an **image** you created (e.g. `python` or `base`).
 
 ### Using cURL
 
 ```bash
-# Create session
+# Create session (use your api_key and an image you pulled)
 SESSION_ID=$(curl -s -X POST http://localhost:8080/v1/sessions \
-  -H "Authorization: Bearer sk-sandbox-quickstart" \
-  -d '{"image":"base"}' | jq -r .id)
+  -H "Authorization: Bearer sk-test" \
+  -d '{"image":"python"}' | jq -r .id)
 
 echo "Session ID: $SESSION_ID"
 
 # Execute command
 curl -X POST http://localhost:8080/v1/sessions/$SESSION_ID/exec \
-  -H "Authorization: Bearer sk-sandbox-quickstart" \
+  -H "Authorization: Bearer sk-test" \
   -d '{"cmd":"echo hello world"}'
 
 # Write a file
 curl -X POST http://localhost:8080/v1/sessions/$SESSION_ID/fs/write \
-  -H "Authorization: Bearer sk-sandbox-quickstart" \
+  -H "Authorization: Bearer sk-test" \
   -d '{"path":"/workspace/test.txt","text":"Hello from sandbox!"}'
 
 # Read it back
 curl "http://localhost:8080/v1/sessions/$SESSION_ID/fs/read?path=/workspace/test.txt" \
-  -H "Authorization: Bearer sk-sandbox-quickstart"
+  -H "Authorization: Bearer sk-test"
 
 # Clean up
 curl -X DELETE http://localhost:8080/v1/sessions/$SESSION_ID \
-  -H "Authorization: Bearer sk-sandbox-quickstart"
+  -H "Authorization: Bearer sk-test"
 ```
 
 ### Using Python SDK
@@ -143,29 +152,35 @@ from sandkasten import SandboxClient
 async def main():
     client = SandboxClient(
         base_url="http://localhost:8080",
-        api_key="sk-sandbox-quickstart"
+        api_key="sk-test"
     )
-    
-    async with await client.create_session(image="base") as session:
-        # Execute command
+    # Use an image you pulled (e.g. "python"); or omit for default_image from config
+    async with await client.create_session(image="python") as session:
         result = await session.exec("echo hello")
         print(result.output)
-        
-        # Write file
         await session.write("test.py", "print('Hello!')")
-        
-        # Run Python
         result = await session.exec("python3 test.py")
         print(result.output)
 
 asyncio.run(main())
 ```
 
+### Run the example agent
+
+```bash
+cd quickstart/agent
+export OPENAI_API_KEY="sk-..."
+uv run enhanced_agent.py
+```
+
+The agent uses the daemon’s **default_image** and API key from config. See [OpenAI Agents SDK](./openai-agents.md) for wiring Sandkasten as tools.
+
 ## Next Steps
 
-- [Configuration Guide](./configuration.md) - Customize settings
-- [API Reference](./api.md) - Complete API documentation
-- [Build custom images](#building-custom-images)
+- [Configuration Guide](./configuration.md) — Customize settings
+- [API Reference](./api.md) — Full API docs
+- [OpenAI Agents SDK](./openai-agents.md) — Use Sandkasten as tools in an agent
+- [Build custom images](#building-custom-images) — Pull more images or build from rootfs
 
 ## Building Custom Images
 
@@ -228,31 +243,18 @@ sudo ./bin/sandkasten --config sandkasten.yaml
 
 ### "image not found"
 
-Check available images:
+List images and pull the one your config or request uses:
 
 ```bash
 ./bin/sandkasten image list
+sudo ./bin/sandkasten image pull --name python python:3.12-slim
 ```
 
-Import one if needed:
-
-```bash
-sudo ./bin/sandkasten image pull --name base alpine:latest
-```
+Ensure `default_image` in `sandkasten.yaml` matches a name you pulled (e.g. `python` or `base`).
 
 ### "Invalid API key"
 
-Check your config matches your requests:
-
-```yaml
-# sandkasten.yaml
-api_key: "sk-sandbox-quickstart"
-```
-
-```bash
-# Request header
-Authorization: Bearer sk-sandbox-quickstart
-```
+Use the same API key in `sandkasten.yaml` and in your requests (e.g. `Authorization: Bearer sk-test`).
 
 ## WSL2 Tips
 

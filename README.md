@@ -1,6 +1,23 @@
-# Sandkasten
+<div align="center">
+  <img src="logo.png" alt="Sandkasten" width="400">
+</div>
 
-**Self-hosted sandbox runtime for AI agents.** Stateful Linux sandboxes with persistent shell, file operations, and workspace management — no Docker required.
+<h1 align="center">Sandkasten</h1>
+
+<p align="center">
+  <strong>Self-hosted sandbox runtime for AI agents.</strong><br>
+  Stateful Linux sandboxes with persistent shell, file operations, and workspace management — no Docker required.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20WSL2-green.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go">
+</p>
+
+---
+
+## Try it
 
 ```python
 from sandkasten import SandboxClient
@@ -33,56 +50,94 @@ async with SandboxClient(base_url="...", api_key="...") as client:
 
 > **Note:** macOS is not supported. Use a Linux VM or WSL2.
 
+---
+
 ## Quick Start
+
+Complete setup from zero to a running agent.
 
 ### 1. Build
 
 ```bash
-git clone https://github.com/yourusername/sandkasten
+git clone https://github.com/p-arndt/sandkasten
 cd sandkasten
 task build
 ```
 
-### 2. Run Preflight + Initialize
+This produces `bin/sandkasten`, `bin/runner`, and `bin/imgbuilder`.
+
+### 2. Preflight & initialize
 
 ```bash
-# Check Linux requirements and hints
+# Check kernel, cgroups, overlayfs
 ./bin/sandkasten doctor
 
-# Check security baseline (api key/seccomp/readonly rootfs/limits)
+# Security check (api key, seccomp, limits)
 ./bin/sandkasten security --config sandkasten.yaml
 
-# Create config + data dirs + pull default image
+# Create sandkasten.yaml, data dirs, and pull the default image (name: base)
 sudo ./bin/sandkasten init --config sandkasten.yaml
 ```
 
-### 3. Start Daemon
+After this you have a minimal config and one image (`base`). For the example agent you need a **Python** image.
+
+### 3. Create images
+
+Sessions run from an **image** (rootfs). Pull at least one image you’ll use (e.g. Python for the agent examples):
+
+```bash
+# Pull a Python image (no Docker daemon required)
+sudo ./bin/sandkasten image pull --name python python:3.12-slim
+
+# Optional: Node.js
+sudo ./bin/sandkasten image pull --name node node:22-slim
+
+# List and validate
+./bin/sandkasten image list
+./bin/sandkasten image validate python
+```
+
+### 4. Configure
+
+Edit `sandkasten.yaml` (in the repo root or where you run the daemon). Set `default_image` to an image you created and ensure `api_key` is set:
+
+```yaml
+listen: "127.0.0.1:8080"
+api_key: "sk-test"
+data_dir: "/var/lib/sandkasten"
+default_image: "python"   # use the image you pulled
+```
+
+For more options (limits, workspaces, security) see [Configuration](./docs/configuration.md).
+
+### 5. Start the daemon
 
 ```bash
 # Foreground (logs in terminal)
 sudo ./bin/sandkasten --config sandkasten.yaml
 
-# Background (like Docker daemon)
+# Or background (like Docker daemon)
 sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
 
-List running sessions (like `docker ps`):
+Useful commands:
 
 ```bash
-./bin/sandkasten ps
+./bin/sandkasten ps          # list sessions (like docker ps)
+sudo ./bin/sandkasten stop   # stop daemon when run with daemon -d
 ```
 
-Stop the daemon when running in background:
+When running in foreground, stop with **Ctrl+C**.  
+**Production:** set a strong `api_key` (or `SANDKASTEN_API_KEY`). The daemon refuses to bind to a non-loopback address without an API key.
+
+### 6. Verify
 
 ```bash
-sudo ./bin/sandkasten stop
+curl http://localhost:8080/healthz
+# Open dashboard: http://localhost:8080
 ```
 
-When running detached, the daemon writes its PID to `<data_dir>/run/sandkasten.pid`. If you started the daemon in the foreground, use **Ctrl+C** to stop it.
-
-**Production:** Set `api_key` in your config (or `SANDKASTEN_API_KEY`). Leaving it empty is for development only; if you bind to a non-loopback address (e.g. `0.0.0.0`), the daemon will refuse to start without an API key.
-
-### 4. Run Example Agent
+### 7. Run the example agent
 
 ```bash
 cd quickstart/agent
@@ -90,89 +145,32 @@ export OPENAI_API_KEY="sk-..."
 uv run enhanced_agent.py
 ```
 
-### 5. Open Dashboard
+The agent uses the daemon’s `default_image` (e.g. `python`) and connects to `http://localhost:8080` with the API key from your config.
 
+### Run with Docker
+
+You can also host Sandkasten with Docker:
+
+```bash
+# From the repo (sandkasten.yaml and docker-compose.yml in place)
+mkdir -p /var/lib/sandkasten
+docker compose up -d
 ```
-http://localhost:8080
-```
+
+The stack uses the repo’s `Dockerfile` and `docker-compose.yml` (mounts `./sandkasten.yaml` and `/var/lib/sandkasten`). The container runs privileged so the daemon can create sandboxes. API and dashboard on port 8080.
 
 ## Documentation
 
-- [Quickstart Guide](./docs/quickstart.md) - Get running in 5 minutes
-- [Windows/WSL2 Setup](./docs/windows.md) - Detailed Windows instructions
-- [API Reference](./docs/api.md) - Complete HTTP API docs
-- [Configuration](./docs/configuration.md) - Config options and security
-- [Security Guide](./docs/security.md) - Hardened config and security checklist
-- [Architecture](#architecture) - How it works
+| Guide | Description |
+|-------|-------------|
+| [Quickstart](./docs/quickstart.md) | Get running in 5 minutes |
+| [OpenAI Agents SDK](./docs/openai-agents.md) | Use Sandkasten as tools (exec, read, write) with the OpenAI Agents SDK |
+| [Windows / WSL2](./docs/windows.md) | Detailed Windows instructions |
+| [API Reference](./docs/api.md) | Complete HTTP API docs |
+| [Configuration](./docs/configuration.md) | Config options and security |
+| [Security Guide](./docs/security.md) | Hardened config and checklist |
 
-## Architecture
-
-Sandkasten uses native Linux sandboxing instead of containers:
-
-```
-┌──────────────────────────────────────────────────────┐
-│                  Sandkasten Daemon                   │
-├──────────────────────────────────────────────────────┤
-│  HTTP API → Session Manager → Linux Runtime Driver   │
-│     ↓            ↓                  ↓                │
-│  Sessions    Workspaces         OverlayFS            │
-│  (SQLite)    (bind mount)       + Namespaces         │
-│                                  + Cgroups            │
-└──────────────────────────────────────────────────────┘
-          │
-          ↓ (Unix socket)
-┌──────────────────────────────────────────────────────┐
-│                  Sandbox Process                      │
-│  ┌────────────────────────────────────────────────┐  │
-│  │ Runner (PID 1)                                 │  │
-│  │ ↓                                              │  │
-│  │ bash -l (PTY) ← persistent shell state        │  │
-│  └────────────────────────────────────────────────┘  │
-│  /workspace/ ← bind mount from host                  │
-│  (overlayfs: lower=image, upper=session)             │
-└──────────────────────────────────────────────────────┘
-```
-
-### Isolation Mechanisms
-
-Each sandbox is isolated using:
-
-- **Mount namespace** - Private filesystem via overlayfs
-- **PID namespace** - Runner becomes PID 1
-- **UTS namespace** - Private hostname (`sk-<session_id>`)
-- **IPC namespace** - Isolated IPC resources
-- **Network namespace** (optional) - No network access
-- **cgroups v2** - CPU, memory, and PID limits
-- **Capabilities** - All capabilities dropped
-- **no_new_privs** - Cannot gain new privileges
-
-## Directory Layout
-
-```
-/var/lib/sandkasten/
-├── images/
-│   ├── base/
-│   │   ├── rootfs/          # Read-only base filesystem
-│   │   └── meta.json
-│   ├── python/
-│   │   ├── rootfs/
-│   │   └── meta.json
-│   └── node/
-│       ├── rootfs/
-│       └── meta.json
-├── run/
-│   └── sandkasten.pid       # Daemon PID when run with daemon -d
-├── sessions/
-│   └── <session_id>/
-│       ├── upper/           # Overlay upper (writable layer)
-│       ├── work/            # Overlay workdir
-│       ├── mnt/             # Overlay mountpoint
-│       ├── run/             # Bind mount for runner socket
-│       │   └── runner.sock
-│       └── state.json       # Runtime state
-└── workspaces/
-    └── <workspace_id>/      # Persistent workspace data
-```
+---
 
 ## Image Management
 
@@ -192,69 +190,16 @@ sudo ./bin/sandkasten image pull --name python python:3.12-slim
 sudo ./bin/sandkasten image delete python
 ```
 
-### Building Images
-
-**Method 1: Pull from registry directly (recommended)**
-
-```bash
-sudo ./bin/sandkasten image pull --name python python:3.12-slim
-```
-
-**Method 2: Build rootfs manually + import tarball**
-
-```bash
-sudo debootstrap --variant=minbase bookworm /tmp/python-rootfs
-sudo chroot /tmp/python-rootfs apt-get install -y python3 python3-pip
-tar -czf python.tar.gz -C /tmp/python-rootfs .
-sudo ./bin/imgbuilder import --name python --tar python.tar.gz
-```
-
-### Image Requirements
-
-Each image must contain:
-- `/bin/sh` - Basic shell
-- `/usr/local/bin/runner` - Runner binary (auto-copied on import)
+Pull from a registry (recommended) or build custom images; see [Configuration](./docs/configuration.md) and the image tool help for details.
 
 ## Configuration
 
-Bootstrap quickly:
-
-```bash
-# Creates config/data dirs and pulls a default base image
-sudo ./bin/sandkasten init --config sandkasten.yaml
-```
-
-Minimal `sandkasten.yaml`:
+After `sandkasten init`, edit `sandkasten.yaml`. Minimal config:
 
 ```yaml
 listen: "127.0.0.1:8080"
 api_key: "sk-your-secret-key"
 data_dir: "/var/lib/sandkasten"
-```
-
-Full example:
-
-```yaml
-listen: "127.0.0.1:8080"
-api_key: "sk-your-secret-key"
-data_dir: "/var/lib/sandkasten"
-default_image: "python"
-allowed_images: ["base", "python", "node"]
-session_ttl_seconds: 1800
-
-defaults:
-  cpu_limit: 1.0
-  mem_limit_mb: 512
-  pids_limit: 256
-  max_exec_timeout_ms: 120000
-  network_mode: "none"
-
-workspace:
-  enabled: true
-  persist_by_default: false
-
-security:
-  seccomp: "mvp"  # off | mvp | strict
 ```
 
 See [Configuration Guide](./docs/configuration.md) for all options.
@@ -326,54 +271,6 @@ For production:
 - Set conservative resource limits
 - Run as non-root when possible (requires user namespace setup)
 
-## Development
-
-### Build Commands
-
-```bash
-task build      # Build everything
-task daemon     # Build daemon only
-task runner     # Build runner binary
-task imgbuilder # Build legacy image import tool
-task run        # Run daemon locally (foreground)
-```
-
-### CLI Commands
-
-```bash
-./bin/sandkasten              # Run daemon in foreground (Ctrl+C to stop)
-./bin/sandkasten daemon -d    # Run daemon in background (detached)
-./bin/sandkasten stop         # Stop daemon (when run with daemon -d)
-./bin/sandkasten ps           # List sessions (like docker ps)
-./bin/sandkasten rm <id>      # Remove (destroy) a session
-./bin/sandkasten doctor       # System checks
-./bin/sandkasten security     # Security baseline checks
-./bin/sandkasten init         # Bootstrap config and data dir
-./bin/sandkasten image list   # List images
-```
-
-### Project Structure
-
-```
-cmd/
-├── sandkasten/      # Daemon entrypoint
-├── runner/          # Runner binary (PID 1 in sandbox)
-└── imgbuilder/      # Image management tool
-
-internal/
-├── api/             # HTTP handlers
-├── session/         # Session orchestration
-├── runtime/
-│   ├── driver.go    # Runtime interface
-│   └── linux/       # Linux implementation
-├── store/           # SQLite persistence
-├── reaper/          # TTL cleanup
-├── config/          # Configuration
-└── web/             # Dashboard
-
-protocol/            # Runner ↔ Daemon protocol
-```
-
 ## API Reference
 
 See [API Documentation](./docs/api.md) for complete reference.
@@ -391,9 +288,11 @@ Quick reference:
 | `DELETE /v1/sessions/{id}` | Destroy session |
 | `GET /v1/workspaces` | List workspaces |
 
+---
+
 ## License
 
-MIT - See [LICENSE](./LICENSE) for details.
+**MIT** — See [LICENSE](./LICENSE) for details.
 
 ## Credits
 
