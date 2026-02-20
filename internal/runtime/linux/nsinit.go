@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -28,6 +29,8 @@ type NsinitConfig struct {
 	GID         int    `json:"gid"`
 	NoNewPrivs  bool   `json:"no_new_privs"`
 	NetworkNone bool   `json:"network_none"`
+	Readonly    bool   `json:"readonly"`
+	Seccomp     string `json:"seccomp"`
 }
 
 func IsNsinit() bool {
@@ -65,8 +68,10 @@ func nsinitMain(cfg NsinitConfig) error {
 	unix.Mount("", cfg.Mnt, "", unix.MS_PRIVATE|unix.MS_REC, "")
 
 	oldRoot := filepath.Join(cfg.Mnt, ".oldroot")
-	if err := os.MkdirAll(oldRoot, 0700); err != nil {
-		return fmt.Errorf("mkdir .oldroot: %w", err)
+	if info, err := os.Stat(oldRoot); err != nil {
+		return fmt.Errorf("stat .oldroot: %w", err)
+	} else if !info.IsDir() {
+		return fmt.Errorf(".oldroot is not a directory")
 	}
 
 	if err := PivotRoot(cfg.Mnt, oldRoot); err != nil {
@@ -85,32 +90,18 @@ func nsinitMain(cfg NsinitConfig) error {
 	}
 
 	devPts := "/dev/pts"
-	if err := os.MkdirAll(devPts, 0755); err != nil {
-		return fmt.Errorf("mkdir /dev/pts: %w", err)
-	}
 	if err := unix.Mount("devpts", devPts, "devpts", 0, "newinstance,ptmxmode=0666,mode=620,gid=5"); err != nil {
 		return fmt.Errorf("mount devpts: %w", err)
-	}
-
-	if err := os.MkdirAll("/run/sandkasten", 0755); err != nil {
-		return fmt.Errorf("mkdir /run/sandkasten: %w", err)
-	}
-	if err := unix.Chmod("/run", 0755); err != nil {
-		return fmt.Errorf("chmod /run: %w", err)
-	}
-	if cfg.UID > 0 || cfg.GID > 0 {
-		if err := unix.Chown("/run/sandkasten", cfg.UID, cfg.GID); err != nil {
-			return fmt.Errorf("chown /run/sandkasten: %w", err)
-		}
-		if err := ensureSandboxHome(cfg.UID, cfg.GID); err != nil {
-			return err
-		}
 	}
 
 	if cfg.NoNewPrivs {
 		if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 			return fmt.Errorf("prctl NO_NEW_PRIVS: %w", err)
 		}
+	}
+
+	if err := applySeccomp(cfg.Seccomp); err != nil {
+		return fmt.Errorf("apply seccomp: %w", err)
 	}
 
 	if err := dropCapabilities(); err != nil {
@@ -188,6 +179,79 @@ func ensureSandboxHome(uid, gid int) error {
 	if err := unix.Chmod(home, 0755); err != nil {
 		return fmt.Errorf("chmod %s: %w", home, err)
 	}
+	return nil
+}
+
+func applySeccomp(profile string) error {
+	switch profile {
+	case "", "off":
+		return nil
+	case "mvp":
+		return installSeccompFilter(false)
+	case "strict":
+		return installSeccompFilter(true)
+	default:
+		return fmt.Errorf("unknown profile %q", profile)
+	}
+}
+
+func installSeccompFilter(strict bool) error {
+	deny := []uint32{
+		uint32(unix.SYS_BPF),
+		uint32(unix.SYS_USERFAULTFD),
+		uint32(unix.SYS_PERF_EVENT_OPEN),
+		uint32(unix.SYS_PTRACE),
+		uint32(unix.SYS_KEXEC_LOAD),
+		uint32(unix.SYS_OPEN_BY_HANDLE_AT),
+		uint32(unix.SYS_KEYCTL),
+		uint32(unix.SYS_ADD_KEY),
+		uint32(unix.SYS_REQUEST_KEY),
+		uint32(unix.SYS_INIT_MODULE),
+		uint32(unix.SYS_FINIT_MODULE),
+		uint32(unix.SYS_DELETE_MODULE),
+		uint32(unix.SYS_MOUNT),
+		uint32(unix.SYS_UMOUNT2),
+		uint32(unix.SYS_PIVOT_ROOT),
+	}
+
+	if strict {
+		deny = append(deny,
+			uint32(unix.SYS_SETNS),
+			uint32(unix.SYS_UNSHARE),
+		)
+	}
+
+	filters := make([]unix.SockFilter, 0, len(deny)*2+2)
+	filters = append(filters, unix.SockFilter{
+		Code: uint16(unix.BPF_LD | unix.BPF_W | unix.BPF_ABS),
+		K:    0,
+	})
+
+	for _, nr := range deny {
+		filters = append(filters,
+			unix.SockFilter{
+				Code: uint16(unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K),
+				Jt:   0,
+				Jf:   1,
+				K:    nr,
+			},
+			unix.SockFilter{
+				Code: uint16(unix.BPF_RET | unix.BPF_K),
+				K:    unix.SECCOMP_RET_ERRNO | uint32(unix.EPERM),
+			},
+		)
+	}
+
+	filters = append(filters, unix.SockFilter{
+		Code: uint16(unix.BPF_RET | unix.BPF_K),
+		K:    unix.SECCOMP_RET_ALLOW,
+	})
+
+	prog := unix.SockFprog{Len: uint16(len(filters)), Filter: &filters[0]}
+	if err := unix.Prctl(unix.PR_SET_SECCOMP, uintptr(unix.SECCOMP_MODE_FILTER), uintptr(unsafe.Pointer(&prog)), 0, 0); err != nil {
+		return err
+	}
+
 	return nil
 }
 

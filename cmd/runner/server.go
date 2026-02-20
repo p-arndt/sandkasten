@@ -56,6 +56,7 @@ func findShell() string {
 // startShell starts shell with PTY.
 func startShell(shell string) (*os.File, *exec.Cmd) {
 	cmd := exec.Command(shell, "-l")
+	cmd.Dir = "/workspace"
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
 		"PS1=$ ",    // simple prompt to reduce noise

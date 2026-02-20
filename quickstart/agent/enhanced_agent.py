@@ -17,6 +17,7 @@ Usage:
 
 Requires daemon config with workspace.enabled: true for persistent workspaces.
 """
+
 from agents.extensions.models.litellm_model import LitellmModel
 
 import asyncio
@@ -58,6 +59,7 @@ conversation_session: SQLiteSession | None = None
 
 # Tools with visual feedback
 
+
 @function_tool
 async def exec(cmd: str, timeout_ms: int = 30000) -> str:
     """Execute a shell command in the sandbox.
@@ -97,7 +99,9 @@ async def write_file(path: str, content: str) -> str:
     Returns:
         Confirmation message
     """
-    console.print(f"[dim]  → write:[/dim] [green]{path}[/green] [dim]({len(content)} bytes)[/dim]")
+    console.print(
+        f"[dim]  → write:[/dim] [green]{path}[/green] [dim]({len(content)} bytes)[/dim]"
+    )
 
     await sandbox_session.write(path, content)
 
@@ -122,11 +126,11 @@ async def read_file(path: str) -> str:
 
 
 # Define the agent
-    # Configure Vertex AI model via LiteLLM
-    # Environment variables required:
-    #   - GOOGLE_APPLICATION_CREDENTIALS: Path to service account JSON
-    #   - VERTEXAI_PROJECT: Google Cloud project ID
-    #   - VERTEXAI_LOCATION: Optional, defaults to us-central1
+# Configure Vertex AI model via LiteLLM
+# Environment variables required:
+#   - GOOGLE_APPLICATION_CREDENTIALS: Path to service account JSON
+#   - VERTEXAI_PROJECT: Google Cloud project ID
+#   - VERTEXAI_LOCATION: Optional, defaults to us-central1
 # os.environ["VERTEXAI_PROJECT"] = "sandkasten-447013"
 os.environ["VERTEXAI_LOCATION"] = "global"
 # model = LitellmModel("vertex_ai/gemini-3-flash-preview")
@@ -148,7 +152,12 @@ The sandbox has:
 - Full internet access
 
 Package management:
-- Use 'pip install <package>'
+- Prefer a project virtual environment in /workspace:
+  1) python3 -m venv /workspace/.venv
+  2) /workspace/.venv/bin/pip install <package>
+  3) /workspace/.venv/bin/python <script>
+- Avoid installing into system site-packages.
+- If you need an ephemeral install, use 'pip install --user <package>'
 
 Always:
 1. Be helpful and thorough
@@ -183,7 +192,9 @@ def print_session_info(session: Session):
     info.add_row("Workspace:", f"[cyan]{WORKSPACE_ID}[/cyan] [dim](persistent)[/dim]")
     info.add_row("Image:", "[cyan]sandbox-runtime:python[/cyan]")
     info.add_row("Network:", "[yellow]full[/yellow]")
-    info.add_row("Packages:", "[dim]requests, httpx, pandas, numpy, matplotlib, bs4, yaml[/dim]")
+    info.add_row(
+        "Packages:", "[dim]requests, httpx, pandas, numpy, matplotlib, bs4, yaml[/dim]"
+    )
     info.add_row("Tools:", "[dim]python3, pip, uv, git, curl, wget, jq[/dim]")
 
     console.print(Panel(info, title="Session", border_style="dim", box=box.ROUNDED))
@@ -203,7 +214,9 @@ def print_help():
 
 When max turns are reached you will be asked whether to continue.
     """
-    console.print(Panel(help_text.strip(), title="Help", border_style="blue", box=box.ROUNDED))
+    console.print(
+        Panel(help_text.strip(), title="Help", border_style="blue", box=box.ROUNDED)
+    )
     console.print()
 
 
@@ -274,19 +287,23 @@ async def show_history():
         if not text.strip():
             continue
         if kind == "input_text" or (kind == "message" and role == "user"):
-            console.print(Panel(
-                text,
-                title=f"[bold cyan]You[/bold cyan] (message {i})",
-                border_style="cyan",
-                box=box.ROUNDED,
-            ))
+            console.print(
+                Panel(
+                    text,
+                    title=f"[bold cyan]You[/bold cyan] (message {i})",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                )
+            )
         elif kind == "message" and role == "assistant":
-            console.print(Panel(
-                Markdown(text),
-                title=f"[bold green]Assistant[/bold green] (message {i})",
-                border_style="green",
-                box=box.ROUNDED,
-            ))
+            console.print(
+                Panel(
+                    Markdown(text),
+                    title=f"[bold green]Assistant[/bold green] (message {i})",
+                    border_style="green",
+                    box=box.ROUNDED,
+                )
+            )
     console.print()
 
 
@@ -311,7 +328,7 @@ async def run_with_streaming(user_input: str):
         if event.type == "run_item_stream_event":
             # Tool calls happen first
             if event.item.type == "tool_call_item":
-                tool_name = getattr(event.item.raw_item, 'name', 'unknown')
+                tool_name = getattr(event.item.raw_item, "name", "unknown")
                 tool_calls.append(tool_name)
 
         elif event.type == "raw_response_event":
@@ -322,7 +339,9 @@ async def run_with_streaming(user_input: str):
                     # Display tool calls first
                     if tool_calls:
                         for tool in tool_calls:
-                            console.print(f"[dim]  → tool:[/dim] [magenta]{tool}[/magenta]")
+                            console.print(
+                                f"[dim]  → tool:[/dim] [magenta]{tool}[/magenta]"
+                            )
                         console.print()
 
                     # Start live streaming display
@@ -333,12 +352,14 @@ async def run_with_streaming(user_input: str):
 
                 # Update live display
                 if live_context:
-                    live_context.update(Panel(
-                        Markdown(response_text),
-                        title="[bold green]Assistant[/bold green]",
-                        border_style="green",
-                        box=box.ROUNDED,
-                    ))
+                    live_context.update(
+                        Panel(
+                            Markdown(response_text),
+                            title="[bold green]Assistant[/bold green]",
+                            border_style="green",
+                            box=box.ROUNDED,
+                        )
+                    )
 
     # Stop live display
     if live_context:
@@ -354,7 +375,9 @@ async def interactive_loop():
     print_header()
 
     # Create client and sandbox session with persistent workspace (see docs/features/workspaces.md)
-    with console.status("[cyan]Creating sandbox session (workspace=%s)...[/cyan]" % WORKSPACE_ID):
+    with console.status(
+        "[cyan]Creating sandbox session (workspace=%s)...[/cyan]" % WORKSPACE_ID
+    ):
         client = SandboxClient(
             base_url=SANDKASTEN_URL,
             api_key=SANDKASTEN_API_KEY,
@@ -427,13 +450,15 @@ async def interactive_loop():
             if client:
                 await client.close()
 
-        console.print(Panel(
-            f"[green]✓[/green] Session [cyan]{sandbox_session.id if sandbox_session else 'unknown'}[/cyan] destroyed\n"
-            f"[dim]Workspace [cyan]{WORKSPACE_ID}[/cyan] preserved — run again to resume files.\n"
-            f"[dim]Conversation history saved to {SESSION_DB}[/dim]",
-            border_style="dim",
-            box=box.ROUNDED,
-        ))
+        console.print(
+            Panel(
+                f"[green]✓[/green] Session [cyan]{sandbox_session.id if sandbox_session else 'unknown'}[/cyan] destroyed\n"
+                f"[dim]Workspace [cyan]{WORKSPACE_ID}[/cyan] preserved — run again to resume files.\n"
+                f"[dim]Conversation history saved to {SESSION_DB}[/dim]",
+                border_style="dim",
+                box=box.ROUNDED,
+            )
+        )
         console.print()
 
 

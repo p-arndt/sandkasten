@@ -39,12 +39,16 @@ func main() {
 			os.Exit(0)
 		case "doctor":
 			os.Exit(runDoctor(os.Args[2:]))
+		case "security":
+			os.Exit(runSecurity(os.Args[2:]))
 		case "init":
 			os.Exit(runInit(os.Args[2:]))
 		case "image":
 			os.Exit(runImage(os.Args[2:]))
 		case "ps":
 			os.Exit(runPs(os.Args[2:]))
+		case "rm":
+			os.Exit(runRm(os.Args[2:]))
 		case "stop":
 			os.Exit(runStop(os.Args[2:]))
 		case "logs":

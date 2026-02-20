@@ -7,3 +7,5 @@ defaults:
   mem_limit_mb: 0   # Disabled  
   pids_limit: 0     # Disabled
   network_mode: "bridge"
+security:
+  seccomp: "strict"

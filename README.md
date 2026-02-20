@@ -49,6 +49,9 @@ task build
 # Check Linux requirements and hints
 ./bin/sandkasten doctor
 
+# Check security baseline (api key/seccomp/readonly rootfs/limits)
+./bin/sandkasten security --config sandkasten.yaml
+
 # Create config + data dirs + pull default image
 sudo ./bin/sandkasten init --config sandkasten.yaml
 ```
@@ -99,6 +102,7 @@ http://localhost:8080
 - [Windows/WSL2 Setup](./docs/windows.md) - Detailed Windows instructions
 - [API Reference](./docs/api.md) - Complete HTTP API docs
 - [Configuration](./docs/configuration.md) - Config options and security
+- [Security Guide](./docs/security.md) - Hardened config and security checklist
 - [Architecture](#architecture) - How it works
 
 ## Architecture
@@ -250,7 +254,7 @@ workspace:
   persist_by_default: false
 
 security:
-  seccomp: "off"  # off | mvp
+  seccomp: "mvp"  # off | mvp | strict
 ```
 
 See [Configuration Guide](./docs/configuration.md) for all options.
@@ -341,7 +345,9 @@ task run        # Run daemon locally (foreground)
 ./bin/sandkasten daemon -d    # Run daemon in background (detached)
 ./bin/sandkasten stop         # Stop daemon (when run with daemon -d)
 ./bin/sandkasten ps           # List sessions (like docker ps)
+./bin/sandkasten rm <id>      # Remove (destroy) a session
 ./bin/sandkasten doctor       # System checks
+./bin/sandkasten security     # Security baseline checks
 ./bin/sandkasten init         # Bootstrap config and data dir
 ./bin/sandkasten image list   # List images
 ```

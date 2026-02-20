@@ -2,7 +2,7 @@
 
 Complete HTTP API documentation for Sandkasten.
 
-**CLI:** List sessions with `./bin/sandkasten ps`. Run the daemon in the background with `./bin/sandkasten daemon -d`; stop it with `sudo ./bin/sandkasten stop` (or **Ctrl+C** if in foreground).
+**CLI:** List sessions with `./bin/sandkasten ps`. Run the daemon in the background with `./bin/sandkasten daemon -d`; stop it with `sudo ./bin/sandkasten stop` (or **Ctrl+C** if in foreground). Validate security baseline with `./bin/sandkasten security --config sandkasten.yaml`.
 
 ## Authentication
 
@@ -81,6 +81,21 @@ DELETE /v1/sessions/{id}
 **Response:**
 ```json
 {"ok": true}
+```
+
+### Session Stats
+
+```http
+GET /v1/sessions/{id}/stats
+```
+
+**Response:**
+```json
+{
+  "memory_bytes": 1239040,
+  "memory_limit": 536870912,
+  "cpu_usage_usec": 10442
+}
 ```
 
 ## Execution

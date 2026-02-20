@@ -2,6 +2,8 @@
 
 Complete reference for configuring Sandkasten.
 
+For a production-oriented hardened example and validation workflow, see [Security Guide](./security.md).
+
 ## Configuration File
 
 Location: `sandkasten.yaml` (specify with `--config` flag)
@@ -50,7 +52,7 @@ workspace:
 
 # Security
 security:
-  seccomp: "off"  # "off" or "mvp" (experimental)
+  seccomp: "mvp"  # "off" | "mvp" | "strict"
 ```
 
 ## Configuration Options
@@ -128,12 +130,14 @@ curl -X POST http://localhost:8080/v1/sessions \
 
 ```yaml
 security:
-  seccomp: "off"
+  seccomp: "mvp"
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `seccomp` | string | `off` | Seccomp profile (`off` or `mvp`) |
+| `seccomp` | string | `off` | Seccomp profile (`off`, `mvp`, or `strict`) |
+
+Use `./bin/sandkasten security --config sandkasten.yaml` to validate your runtime security baseline.
 
 ## Environment Variables
 

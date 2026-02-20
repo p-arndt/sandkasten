@@ -16,27 +16,11 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Skip auth for health check, SPA, and static assets only. /api/status requires auth.
-		if strings.HasPrefix(path, "/v1/") || path == "/api/status" {
-			// Require auth (proceed to check)
-		} else if path == "/healthz" ||
-			path == "/" ||
-			strings.HasPrefix(path, "/_app/") ||
-			strings.HasPrefix(path, "/sessions") ||
-			strings.HasPrefix(path, "/workspaces") ||
-			strings.HasPrefix(path, "/settings") ||
-			(strings.HasSuffix(path, ".js") ||
-				strings.HasSuffix(path, ".css") ||
-				strings.HasSuffix(path, ".svg") ||
-				strings.HasSuffix(path, ".png") ||
-				strings.HasSuffix(path, ".ico") ||
-				strings.HasSuffix(path, ".woff") ||
-				strings.HasSuffix(path, ".woff2") ||
-				strings.HasSuffix(path, ".ttf")) {
+		// Skip auth for public endpoints and static assets only.
+		if isPublicPath(path, r.Method) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// /api/config (GET, PUT) and /api/config/validate (POST) require auth when API key is set (see below)
 
 		if s.cfg.APIKey == "" {
 			// No API key configured — open access (dev mode).
@@ -58,6 +42,39 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isPublicPath(path, method string) bool {
+	if path == "/healthz" || path == "/" || strings.HasPrefix(path, "/_app/") {
+		return true
+	}
+
+	if strings.HasSuffix(path, ".js") ||
+		strings.HasSuffix(path, ".css") ||
+		strings.HasSuffix(path, ".svg") ||
+		strings.HasSuffix(path, ".png") ||
+		strings.HasSuffix(path, ".ico") ||
+		strings.HasSuffix(path, ".woff") ||
+		strings.HasSuffix(path, ".woff2") ||
+		strings.HasSuffix(path, ".ttf") {
+		return true
+	}
+
+	if method != http.MethodGet && method != http.MethodHead {
+		return false
+	}
+
+	if path == "/sessions" || strings.HasPrefix(path, "/sessions/") {
+		return true
+	}
+	if path == "/workspaces" || strings.HasPrefix(path, "/workspaces/") {
+		return true
+	}
+	if path == "/settings" || strings.HasPrefix(path, "/settings/") {
+		return true
+	}
+
+	return false
 }
 
 func (s *Server) requestIDMiddleware(next http.Handler) http.Handler {

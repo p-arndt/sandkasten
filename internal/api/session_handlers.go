@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/p-arndt/sandkasten/internal/session"
@@ -15,7 +14,7 @@ type createSessionRequest struct {
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req createSessionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(w, r, &req); err != nil {
 		writeValidationError(w, "invalid json: "+err.Error(), nil)
 		return
 	}

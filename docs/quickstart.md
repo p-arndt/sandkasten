@@ -31,6 +31,9 @@ This builds:
 # Check your system (kernel/cgroups/overlayfs/data-dir hints)
 ./bin/sandkasten doctor
 
+# Check security baseline before exposing the API
+./bin/sandkasten security --config sandkasten.yaml
+
 # Create sandkasten.yaml + data dirs + pull base image
 sudo ./bin/sandkasten init --config sandkasten.yaml
 ```

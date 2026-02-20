@@ -217,6 +217,7 @@ sudo rm -rf /var/lib/sandkasten/sessions/<id>
 sudo ./bin/sandkasten --config sandkasten.yaml          # foreground (Ctrl+C to stop)
 sudo ./bin/sandkasten daemon -d --config sandkasten.yaml # background
 ./bin/sandkasten ps    # list sessions (like docker ps)
+./bin/sandkasten rm <session-id>   # remove (destroy) a session
 sudo ./bin/sandkasten stop   # stop daemon when run with daemon -d
 ```
 

@@ -53,6 +53,13 @@ func MountProc(target string) error {
 	return nil
 }
 
+func RemountReadOnly(target string) error {
+	if err := unix.Mount("", target, "", unix.MS_REMOUNT|unix.MS_RDONLY, ""); err != nil {
+		return fmt.Errorf("remount readonly %s: %w", target, err)
+	}
+	return nil
+}
+
 func MakePrivate(mountPoint string) error {
 	if err := unix.Mount("", mountPoint, "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return fmt.Errorf("make private %s: %w", mountPoint, err)

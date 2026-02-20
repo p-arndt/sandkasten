@@ -123,6 +123,40 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		}
 	}
 
+	if err := os.MkdirAll(filepath.Join(mnt, ".oldroot"), 0700); err != nil {
+		CleanupMounts(mnt)
+		d.cleanupSessionDir(sessionDir)
+		return nil, fmt.Errorf("prepare .oldroot: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(mnt, "dev", "pts"), 0755); err != nil {
+		CleanupMounts(mnt)
+		d.cleanupSessionDir(sessionDir)
+		return nil, fmt.Errorf("prepare /dev/pts: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(mnt, "home", "sandbox"), 0755); err != nil {
+		CleanupMounts(mnt)
+		d.cleanupSessionDir(sessionDir)
+		return nil, fmt.Errorf("prepare /home/sandbox: %w", err)
+	}
+	if err := MountTmpfs(filepath.Join(mnt, "home", "sandbox"), 128*1024*1024); err != nil {
+		CleanupMounts(mnt)
+		d.cleanupSessionDir(sessionDir)
+		return nil, fmt.Errorf("mount tmpfs /home/sandbox: %w", err)
+	}
+	if err := os.Chown(filepath.Join(mnt, "home", "sandbox"), runnerUID, runnerGID); err != nil {
+		CleanupMounts(mnt)
+		d.cleanupSessionDir(sessionDir)
+		return nil, fmt.Errorf("chown /home/sandbox: %w", err)
+	}
+
+	if d.cfg.Defaults.ReadonlyRootfs {
+		if err := RemountReadOnly(mnt); err != nil {
+			CleanupMounts(mnt)
+			d.cleanupSessionDir(sessionDir)
+			return nil, fmt.Errorf("remount readonly rootfs: %w", err)
+		}
+	}
+
 	if err := os.Chown(runHostDir, runnerUID, runnerGID); err != nil {
 		CleanupMounts(mnt)
 		d.cleanupSessionDir(sessionDir)
@@ -150,6 +184,8 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		GID:         runnerGID,
 		NoNewPrivs:  true,
 		NetworkNone: d.cfg.Defaults.NetworkMode == "none",
+		Readonly:    d.cfg.Defaults.ReadonlyRootfs,
+		Seccomp:     d.cfg.Security.Seccomp,
 	}
 
 	cmd, nsinitLog, err := LaunchNsinit(nsConfig)

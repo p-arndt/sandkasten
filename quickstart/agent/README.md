@@ -31,7 +31,8 @@ uv run enhanced_agent.py
 
 You: Create a Python script that generates QR codes
 
-  → exec: pip install qrcode pillow
+  → exec: python3 -m venv /workspace/.venv
+  → exec: /workspace/.venv/bin/pip install qrcode pillow
   → write: qr_gen.py
   → exec: python3 qr_gen.py
 
@@ -52,6 +53,18 @@ You: Create a Python script that generates QR codes
 ### Conversation History
 
 History is stored in `conversation_history.db` using SQLite. Each session gets a unique ID with timestamp. You can resume conversations by using the same session ID.
+
+### Package Installation Best Practice
+
+Install Python packages into a virtual environment under `/workspace` so dependencies are explicit and project-local:
+
+```bash
+python3 -m venv /workspace/.venv
+/workspace/.venv/bin/pip install <package>
+/workspace/.venv/bin/python your_script.py
+```
+
+Avoid installing into system site-packages.
 
 ---
 

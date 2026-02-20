@@ -98,9 +98,11 @@ func printMainUsage() {
   sandkasten [--config <path>] [--log-level <level>]      Run daemon (foreground)
   sandkasten daemon [-d|--detach] [options]              Run daemon (optionally in background)
   sandkasten ps [--config <path>] [--host <url>]          List sessions (like docker ps)
+  sandkasten rm <session-id> [--config <path>] [--host <url>]  Remove (destroy) a session
   sandkasten stop [--config <path>] [--data-dir <dir>]     Stop daemon (when run with daemon -d)
   sandkasten logs [--config <path>]                       Tail daemon logs
   sandkasten doctor [--data-dir <dir>]                    Run environment checks
+  sandkasten security [--config <path>] [--data-dir <dir>] Run security baseline checks
   sandkasten init [options]                               Bootstrap config and data dir
   sandkasten image <command> [options]                    Manage images
 
@@ -192,6 +194,81 @@ func runPs(args []string) int {
 	return 0
 }
 
+// runRm destroys a session via the daemon API (like docker rm).
+func runRm(args []string) int {
+	fs := flag.NewFlagSet("rm", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	cfgPath := fs.String("config", "", "path to sandkasten.yaml")
+	host := fs.String("host", "", "daemon URL (e.g. http://127.0.0.1:8080)")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	ids := fs.Args()
+	if len(ids) == 0 {
+		fmt.Fprintf(os.Stderr, "rm: missing session ID\n")
+		fmt.Fprintf(os.Stderr, "Usage: sandkasten rm <session-id> [--config <path>] [--host <url>]\n")
+		return 1
+	}
+
+	baseURL := *host
+	apiKey := os.Getenv("SANDKASTEN_API_KEY")
+	if baseURL == "" {
+		path := *cfgPath
+		if path == "" {
+			for _, p := range []string{"sandkasten.yaml", "/etc/sandkasten/sandkasten.yaml"} {
+				if _, err := os.Stat(p); err == nil {
+					path = p
+					break
+				}
+			}
+		}
+		cfg, err := config.Load(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "rm: load config: %v\n", err)
+			return 1
+		}
+		baseURL = "http://" + cfg.Listen
+		if apiKey == "" {
+			apiKey = cfg.APIKey
+		}
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	var lastErr error
+	for _, id := range ids {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, baseURL+"/v1/sessions/"+id, nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "rm: %s: %v\n", id, err)
+			lastErr = err
+			continue
+		}
+		if apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "rm: %s: cannot reach daemon: %v\n", id, err)
+			lastErr = err
+			continue
+		}
+		resp.Body.Close()
+		switch resp.StatusCode {
+		case http.StatusOK:
+			fmt.Fprintf(os.Stderr, "%s\n", id)
+		case http.StatusNotFound, http.StatusBadRequest:
+			fmt.Fprintf(os.Stderr, "rm: %s: session not found or invalid\n", id)
+			lastErr = fmt.Errorf("session not found: %s", id)
+		default:
+			fmt.Fprintf(os.Stderr, "rm: %s: daemon returned %s\n", id, resp.Status)
+			lastErr = fmt.Errorf("daemon returned %s", resp.Status)
+		}
+	}
+	if lastErr != nil {
+		return 1
+	}
+	return 0
+}
+
 // daemonize starts the daemon in a new process with Setsid and exits the parent (re-exec approach).
 // The child runs with SANDKASTEN_DETACHED=1 and will write the PID file after loading config.
 func daemonize(cfg *config.Config) error {
@@ -204,7 +281,7 @@ func daemonize(cfg *config.Config) error {
 	}
 
 	logPath := filepath.Join(runDir, "sandkasten.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}
@@ -291,6 +368,21 @@ func writePidFileIfDetached(cfg *config.Config) error {
 	return os.WriteFile(pidPath, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0644)
 }
 
+// readDataDirFromConfig reads only the data_dir value from a YAML config file (no full parse).
+// Avoids config.Load to prevent segfaults that can occur with the full YAML/config path.
+func readDataDirFromConfig(configPath string) string {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+	// Match "data_dir:" then optional space and a quoted or unquoted value
+	re := regexp.MustCompile(`(?m)^\s*data_dir\s*:\s*["']?([^"'\s#]+)["']?\s*(?:#|$)`)
+	if m := re.FindSubmatch(data); len(m) > 1 {
+		return strings.TrimSpace(string(m[1]))
+	}
+	return ""
+}
+
 // runStop stops the daemon when it was started with daemon -d (sends SIGTERM, removes PID file).
 func runStop(args []string) int {
 	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
@@ -312,12 +404,9 @@ func runStop(args []string) int {
 				}
 			}
 		}
-		cfg, err := config.Load(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "stop: load config: %v\n", err)
-			return 1
+		if path != "" {
+			dataDir = readDataDirFromConfig(path)
 		}
-		dataDir = cfg.DataDir
 	}
 	if dataDir == "" {
 		dataDir = envOrDefault("SANDKASTEN_DATA_DIR", defaultDataDir)
@@ -425,6 +514,131 @@ func runDoctor(args []string) int {
 	}
 
 	fmt.Println("\nDoctor checks passed.")
+	return 0
+}
+
+func runSecurity(args []string) int {
+	fs := flag.NewFlagSet("security", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	cfgPath := fs.String("config", "", "path to sandkasten.yaml")
+	dataDirFlag := fs.String("data-dir", "", "sandkasten data directory (overrides config)")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	pathValue := *cfgPath
+	if pathValue == "" {
+		for _, p := range []string{"sandkasten.yaml", "/etc/sandkasten/sandkasten.yaml"} {
+			if _, err := os.Stat(p); err == nil {
+				pathValue = p
+				break
+			}
+		}
+	}
+
+	cfg, err := config.Load(pathValue)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "security: load config: %v\n", err)
+		return 1
+	}
+	if *dataDirFlag != "" {
+		cfg.DataDir = *dataDirFlag
+	}
+
+	checks := make([]doctorCheck, 0, 12)
+	failures := 0
+
+	if cfg.APIKey == "" {
+		if isListenNonLoopback(cfg.Listen) {
+			checks = append(checks, doctorCheck{Name: "API key", Status: "FAIL", Details: "api_key is empty while listen is non-loopback"})
+			failures++
+		} else {
+			checks = append(checks, doctorCheck{Name: "API key", Status: "WARN", Details: "empty API key is only safe for local development"})
+		}
+	} else {
+		checks = append(checks, doctorCheck{Name: "API key", Status: "OK", Details: "configured"})
+	}
+
+	switch cfg.Security.Seccomp {
+	case "mvp", "strict":
+		checks = append(checks, doctorCheck{Name: "Seccomp", Status: "OK", Details: cfg.Security.Seccomp})
+	case "", "off":
+		checks = append(checks, doctorCheck{Name: "Seccomp", Status: "FAIL", Details: "security.seccomp is off"})
+		failures++
+	default:
+		checks = append(checks, doctorCheck{Name: "Seccomp", Status: "FAIL", Details: "unknown profile: " + cfg.Security.Seccomp})
+		failures++
+	}
+
+	if cfg.Defaults.ReadonlyRootfs {
+		checks = append(checks, doctorCheck{Name: "Readonly rootfs", Status: "OK", Details: "enabled"})
+	} else {
+		checks = append(checks, doctorCheck{Name: "Readonly rootfs", Status: "FAIL", Details: "disabled"})
+		failures++
+	}
+
+	if cfg.Defaults.PidsLimit > 0 {
+		checks = append(checks, doctorCheck{Name: "PID limit", Status: "OK", Details: strconv.Itoa(cfg.Defaults.PidsLimit)})
+	} else {
+		checks = append(checks, doctorCheck{Name: "PID limit", Status: "FAIL", Details: "must be > 0"})
+		failures++
+	}
+
+	if cfg.Defaults.MemLimitMB > 0 {
+		checks = append(checks, doctorCheck{Name: "Memory limit", Status: "OK", Details: fmt.Sprintf("%d MB", cfg.Defaults.MemLimitMB)})
+	} else {
+		checks = append(checks, doctorCheck{Name: "Memory limit", Status: "FAIL", Details: "must be > 0"})
+		failures++
+	}
+
+	if cfg.Defaults.CPULimit > 0 {
+		checks = append(checks, doctorCheck{Name: "CPU limit", Status: "OK", Details: fmt.Sprintf("%.2f", cfg.Defaults.CPULimit)})
+	} else {
+		checks = append(checks, doctorCheck{Name: "CPU limit", Status: "FAIL", Details: "must be > 0"})
+		failures++
+	}
+
+	if cfg.Defaults.NetworkMode == "none" {
+		checks = append(checks, doctorCheck{Name: "Network mode", Status: "OK", Details: "none"})
+	} else {
+		checks = append(checks, doctorCheck{Name: "Network mode", Status: "WARN", Details: cfg.Defaults.NetworkMode + " (egress enabled)"})
+	}
+
+	if ok, status, details := checkDataDir(cfg.DataDir); ok {
+		checks = append(checks, doctorCheck{Name: "Data directory", Status: status, Details: details})
+	} else {
+		checks = append(checks, doctorCheck{Name: "Data directory", Status: status, Details: details})
+		if status == "FAIL" {
+			failures++
+		}
+	}
+
+	logPath := filepath.Join(cfg.DataDir, "run", "sandkasten.log")
+	if info, err := os.Stat(logPath); err == nil {
+		mode := info.Mode().Perm()
+		if mode&0077 != 0 {
+			checks = append(checks, doctorCheck{Name: "Daemon log perms", Status: "FAIL", Details: fmt.Sprintf("%s is %04o (expected 0600)", logPath, mode)})
+			failures++
+		} else {
+			checks = append(checks, doctorCheck{Name: "Daemon log perms", Status: "OK", Details: fmt.Sprintf("%04o", mode)})
+		}
+	} else {
+		checks = append(checks, doctorCheck{Name: "Daemon log perms", Status: "WARN", Details: "log file not found (start daemon with -d to create it)"})
+	}
+
+	fmt.Println("Sandkasten security")
+	for _, check := range checks {
+		fmt.Printf("[%s] %-16s %s\n", check.Status, check.Name, check.Details)
+	}
+
+	if failures > 0 {
+		fmt.Printf("\nSecurity baseline failed: %d blocking issue(s).\n", failures)
+		fmt.Println("Note: This command reduces risk but cannot prove absolute breakout resistance.")
+		return 1
+	}
+
+	fmt.Println("\nSecurity baseline checks passed.")
+	fmt.Println("Note: This command reduces risk but cannot prove absolute breakout resistance.")
 	return 0
 }
 
@@ -931,16 +1145,73 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func secureTargetPath(rootfsDir, archivePath string) (string, string, error) {
-	clean := filepath.Clean("/" + filepath.FromSlash(archivePath))
-	rel := strings.TrimPrefix(clean, "/")
-	if rel == "" || rel == "." {
-		return rootfsDir, "", nil
+func evalSymlinksInScope(root, archivePath string, depth int) (string, error) {
+	if depth > 255 {
+		return "", fmt.Errorf("too many symlinks")
 	}
-	target := filepath.Join(rootfsDir, rel)
+	root = filepath.Clean(root)
+	archivePath = filepath.Clean("/" + filepath.ToSlash(archivePath))
+	parts := strings.Split(archivePath, "/")
+
+	current := root
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			if current != root {
+				current = filepath.Dir(current)
+			}
+			continue
+		}
+
+		next := filepath.Join(current, part)
+		info, err := os.Lstat(next)
+		if err != nil {
+			if os.IsNotExist(err) {
+				current = next
+				continue
+			}
+			return "", err
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(next)
+			if err != nil {
+				return "", err
+			}
+			var nextPath string
+			if filepath.IsAbs(target) {
+				nextPath = target
+			} else {
+				relToRoot := strings.TrimPrefix(filepath.Dir(next), root)
+				if relToRoot == "" {
+					relToRoot = "/"
+				}
+				nextPath = filepath.Join(relToRoot, target)
+			}
+			resolved, err := evalSymlinksInScope(root, nextPath, depth+1)
+			if err != nil {
+				return "", err
+			}
+			current = resolved
+		} else {
+			current = next
+		}
+	}
+	return current, nil
+}
+
+func secureTargetPath(rootfsDir, archivePath string) (string, string, error) {
+	target, err := evalSymlinksInScope(rootfsDir, archivePath, 0)
+	if err != nil {
+		return "", "", err
+	}
 	if !strings.HasPrefix(target, rootfsDir+string(os.PathSeparator)) && target != rootfsDir {
 		return "", "", fmt.Errorf("archive path escapes rootfs: %q", archivePath)
 	}
+	rel := strings.TrimPrefix(target, rootfsDir)
+	rel = strings.TrimPrefix(rel, string(os.PathSeparator))
 	return target, rel, nil
 }
 
