@@ -53,6 +53,12 @@ func NewDriver(cfg *config.Config, logger *slog.Logger) (*Driver, error) {
 		}
 	}
 
+	if cfg.Defaults.NetworkMode == "bridge" {
+		if err := SetupHostBridge(); err != nil {
+			logger.Warn("failed to setup host bridge network, bridge mode may not work", "error", err)
+		}
+	}
+
 	return d, nil
 }
 
@@ -183,7 +189,7 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		UID:         runnerUID,
 		GID:         runnerGID,
 		NoNewPrivs:  true,
-		NetworkNone: d.cfg.Defaults.NetworkMode == "none",
+		NetworkNone: d.cfg.Defaults.NetworkMode != "host",
 		Readonly:    d.cfg.Defaults.ReadonlyRootfs,
 		Seccomp:     d.cfg.Security.Seccomp,
 	}
@@ -207,6 +213,18 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 	}
 
 	initPid := cmd.Process.Pid
+
+	if d.cfg.Defaults.NetworkMode == "bridge" {
+		ip, err := AllocateIP(opts.SessionID)
+		if err == nil {
+			if err := SetupSessionNetwork(opts.SessionID, initPid, ip); err != nil {
+				d.logger.Error("failed to setup session network", "session_id", opts.SessionID, "error", err)
+			}
+		} else {
+			d.logger.Error("failed to allocate ip", "session_id", opts.SessionID, "error", err)
+		}
+	}
+
 	if err := AttachToCgroup(cgPath, initPid); err != nil {
 		logContent, _ := os.ReadFile(nsinitLog.Name())
 		_ = nsinitLog.Close()
@@ -218,7 +236,7 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		return nil, fmt.Errorf("attach to cgroup: %w (log: %s)", err, string(logContent))
 	}
 
-	runnerSock := filepath.Join(runHostDir, protocol.RunnerSocketName)
+	runnerSock := fmt.Sprintf("/proc/%d/root/run/sandkasten/runner.sock", initPid)
 	if err := d.waitForSocket(ctx, runnerSock, 10*time.Second); err != nil {
 		logContent, _ := os.ReadFile(nsinitLog.Name())
 		_ = nsinitLog.Close()
@@ -265,11 +283,23 @@ func (d *Driver) Exec(ctx context.Context, sessionID string, req protocol.Reques
 	if d.logger != nil {
 		d.logger.Debug("runtime exec", "session_id", sessionID, "request_id", req.ID)
 	}
-	runnerSock := filepath.Join(d.dataDir, "sessions", sessionID, protocol.RunDirName, protocol.RunnerSocketName)
+	statePath := filepath.Join(d.dataDir, "sessions", sessionID, "state.json")
+	state, err := d.readState(statePath)
+	if err != nil {
+		return nil, fmt.Errorf("read state: %w", err)
+	}
+	runnerSock := fmt.Sprintf("/proc/%d/root/run/sandkasten/runner.sock", state.InitPID)
 	return d.execViaSocket(runnerSock, req)
 }
 
 func (d *Driver) execViaSocket(sockPath string, req protocol.Request) (*protocol.Response, error) {
+	// Prevent symlink hijack (Confused Deputy)
+	if info, err := os.Lstat(sockPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("socket %s is a symlink, possible hijack attempt", sockPath)
+		}
+	}
+
 	conn, err := net.DialTimeout("unix", sockPath, 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to runner: %w", err)
@@ -306,6 +336,14 @@ func (d *Driver) Destroy(ctx context.Context, sessionID string) error {
 	if d.logger != nil {
 		d.logger.Debug("runtime destroy session", "session_id", sessionID)
 	}
+
+	if d.cfg.Defaults.NetworkMode == "bridge" {
+		ip := GetIPForSession(sessionID)
+		if ip != "" {
+			ReleaseIP(ip)
+		}
+	}
+
 	sessionDir := filepath.Join(d.dataDir, "sessions", sessionID)
 	statePath := filepath.Join(sessionDir, "state.json")
 

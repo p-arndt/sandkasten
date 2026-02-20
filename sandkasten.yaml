@@ -3,9 +3,9 @@ api_key: "sk-test"
 data_dir: "/var/lib/sandkasten"
 default_image: "python"
 defaults:
-  cpu_limit: 0      # Disabled
-  mem_limit_mb: 0   # Disabled  
-  pids_limit: 0     # Disabled
-  network_mode: "bridge"
+  cpu_limit: 2      # 2 CPU cores
+  mem_limit_mb: 1024   # 1024 MB  
+  pids_limit: 256     # 256 processes
+  network_mode: "none"
 security:
   seccomp: "strict"

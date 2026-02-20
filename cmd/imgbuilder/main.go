@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -149,6 +150,10 @@ func importImage(dataDir, name, tarPath string) error {
 		}
 
 		target := filepath.Join(rootfsDir, header.Name)
+
+		if !strings.HasPrefix(target, filepath.Clean(rootfsDir)+string(os.PathSeparator)) && target != filepath.Clean(rootfsDir) {
+			return fmt.Errorf("invalid path in tar (path traversal attempt): %s", header.Name)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:

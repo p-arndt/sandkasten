@@ -5,11 +5,13 @@ package linux
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -21,16 +23,17 @@ const (
 )
 
 type NsinitConfig struct {
-	SessionID   string `json:"session_id"`
-	Mnt         string `json:"mnt"`
-	CgroupPath  string `json:"cgroup_path"`
-	RunnerPath  string `json:"runner_path"`
-	UID         int    `json:"uid"`
-	GID         int    `json:"gid"`
-	NoNewPrivs  bool   `json:"no_new_privs"`
-	NetworkNone bool   `json:"network_none"`
-	Readonly    bool   `json:"readonly"`
-	Seccomp     string `json:"seccomp"`
+	SessionID     string `json:"session_id"`
+	Mnt           string `json:"mnt"`
+	CgroupPath    string `json:"cgroup_path"`
+	RunnerPath    string `json:"runner_path"`
+	UID           int    `json:"uid"`
+	GID           int    `json:"gid"`
+	NoNewPrivs    bool   `json:"no_new_privs"`
+	NetworkNone   bool   `json:"network_none"`
+	NetworkBridge bool   `json:"network_bridge"`
+	Readonly      bool   `json:"readonly"`
+	Seccomp       string `json:"seccomp"`
 }
 
 func IsNsinit() bool {
@@ -117,6 +120,15 @@ func nsinitMain(cfg NsinitConfig) error {
 	if cfg.UID > 0 {
 		if err := unix.Setuid(cfg.UID); err != nil {
 			return fmt.Errorf("setuid: %w", err)
+		}
+	}
+
+	if cfg.NetworkBridge {
+		for i := 0; i < 50; i++ {
+			if _, err := net.InterfaceByName("eth0"); err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 

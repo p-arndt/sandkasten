@@ -41,7 +41,32 @@ func CgroupPath(sessionID string) string {
 	return filepath.Join(base, "sandkasten", sessionID)
 }
 
+func enableControllers(cgPath string) {
+	data, err := os.ReadFile(filepath.Join(cgPath, "cgroup.controllers"))
+	if err != nil {
+		return
+	}
+	var enable []string
+	for _, c := range strings.Split(strings.TrimSpace(string(data)), " ") {
+		if c == "cpu" || c == "memory" || c == "pids" {
+			enable = append(enable, "+"+c)
+		}
+	}
+	if len(enable) > 0 {
+		_ = os.WriteFile(filepath.Join(cgPath, "cgroup.subtree_control"), []byte(strings.Join(enable, " ")), 0644)
+	}
+}
+
 func CreateCgroup(sessionID string, cfg CgroupConfig) (string, error) {
+	basePath := getCgroupPath()
+	parentPath := filepath.Join(basePath, "sandkasten")
+	if err := os.MkdirAll(parentPath, 0755); err != nil {
+		return "", fmt.Errorf("create parent cgroup %s: %w", parentPath, err)
+	}
+
+	enableControllers(basePath)
+	enableControllers(parentPath)
+
 	cgPath := CgroupPath(sessionID)
 
 	if err := os.MkdirAll(cgPath, 0755); err != nil {
