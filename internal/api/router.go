@@ -7,24 +7,21 @@ import (
 
 	"github.com/p-arndt/sandkasten/internal/config"
 	"github.com/p-arndt/sandkasten/internal/store"
-	"github.com/p-arndt/sandkasten/internal/web"
 )
 
 type Server struct {
-	cfg        *config.Config
-	manager    SessionService
-	logger     *slog.Logger
-	mux        *http.ServeMux
-	webHandler *web.Handler
+	cfg     *config.Config
+	manager SessionService
+	logger  *slog.Logger
+	mux     *http.ServeMux
 }
 
 func NewServer(cfg *config.Config, mgr SessionService, st *store.Store, configPath string, logger *slog.Logger) *Server {
 	s := &Server{
-		cfg:        cfg,
-		manager:    mgr,
-		logger:     logger,
-		mux:        http.NewServeMux(),
-		webHandler: web.NewHandler(st, configPath, cfg.PlaygroundConfigPath),
+		cfg:     cfg,
+		manager: mgr,
+		logger:  logger,
+		mux:     http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -52,21 +49,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/workspaces/{id}/fs", s.handleListWorkspaceFiles)
 	s.mux.HandleFunc("GET /v1/workspaces/{id}/fs/read", s.handleReadWorkspaceFile)
 
-	// Web API routes (same auth as API when API key set)
-	s.mux.HandleFunc("GET /api/status", s.webHandler.GetStatus)
-	s.mux.HandleFunc("GET /api/config", s.webHandler.GetConfig)
-	s.mux.HandleFunc("PUT /api/config", s.webHandler.UpdateConfig)
-	s.mux.HandleFunc("POST /api/config/validate", s.webHandler.ValidateConfig)
-	s.mux.HandleFunc("GET /api/playground/config", s.webHandler.GetPlaygroundConfig)
-	s.mux.HandleFunc("PUT /api/playground/config", s.webHandler.PutPlaygroundConfig)
-
 	// Health check (no auth)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	// SPA catch-all (must be last, serves SvelteKit app and handles client-side routing)
-	s.mux.HandleFunc("GET /", s.webHandler.ServeSPA)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

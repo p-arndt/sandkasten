@@ -5,6 +5,7 @@ package linux
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,6 +184,46 @@ func BindHostFile(mnt, hostPath, relPath string) error {
 	return nil
 }
 
+func CopyHostFile(mnt, hostPath, relPath string) error {
+	if _, err := os.Stat(hostPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat host file %s: %w", hostPath, err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(hostPath)
+	if err != nil {
+		return fmt.Errorf("resolve host file %s: %w", hostPath, err)
+	}
+
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return fmt.Errorf("read host file %s: %w", resolved, err)
+	}
+
+	dst := filepath.Join(mnt, relPath)
+	if err := MkdirAll(filepath.Dir(dst)); err != nil {
+		return err
+	}
+
+	if fi, err := os.Lstat(dst); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(dst); err != nil {
+				return fmt.Errorf("remove symlink %s: %w", dst, err)
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("lstat %s: %w", dst, err)
+	}
+
+	if err := os.WriteFile(dst, data, 0644); err != nil {
+		return fmt.Errorf("write file %s: %w", dst, err)
+	}
+
+	return nil
+}
+
 // EnsureResolvConf ensures mnt/etc/resolv.conf exists and contains at least one nameserver
 // when network is enabled. If the file is missing (host had no resolv.conf), writes a
 // fallback. If it exists (e.g. bind-mounted from host), only ensures we have a nameserver
@@ -194,20 +235,44 @@ func EnsureResolvConf(mnt string) error {
 		if !os.IsNotExist(err) {
 			return err
 		}
-		// File missing — create fallback (BindHostFile skipped because host had no resolv)
+		// File missing — create fallback.
 		if err := MkdirAll(filepath.Dir(resolv)); err != nil {
 			return err
 		}
-		return os.WriteFile(resolv, []byte("nameserver 8.8.8.8\nnameserver 1.1.1.1\n"), 0644)
+		return os.WriteFile(resolv, []byte("nameserver 1.1.1.1\nnameserver 8.8.8.8\n"), 0644)
 	}
+
+	hasNonLoopback := false
+	hasAnyNameserver := false
 	sc := bufio.NewScanner(strings.NewReader(string(data)))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
-		if strings.HasPrefix(line, "nameserver ") && len(strings.TrimSpace(line)) > len("nameserver ") {
-			return nil
+		if !strings.HasPrefix(line, "nameserver ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		hasAnyNameserver = true
+		ip := net.ParseIP(fields[1])
+		if ip != nil && !ip.IsLoopback() {
+			hasNonLoopback = true
+			break
 		}
 	}
-	// File exists but has no nameserver — do not overwrite (may be bind-mounted from host)
+
+	if hasNonLoopback {
+		return nil
+	}
+
+	// In nested/containerized setups, /etc/resolv.conf often contains only loopback
+	// nameservers (127.0.0.11, 127.0.0.53, ::1), which are unreachable from the
+	// sandbox network namespace. Replace with public resolvers.
+	if !hasAnyNameserver || !hasNonLoopback {
+		return os.WriteFile(resolv, []byte("nameserver 1.1.1.1\nnameserver 8.8.8.8\n"), 0644)
+	}
+
 	return nil
 }
 
@@ -229,7 +294,7 @@ func SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runHostDir string) e
 		return err
 	}
 
-	if err := BindHostFile(mnt, "/etc/resolv.conf", "etc/resolv.conf"); err != nil {
+	if err := CopyHostFile(mnt, "/etc/resolv.conf", "etc/resolv.conf"); err != nil {
 		return err
 	}
 	if err := BindHostFile(mnt, "/etc/hosts", "etc/hosts"); err != nil {
