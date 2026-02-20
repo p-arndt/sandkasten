@@ -43,7 +43,7 @@ func TestExecSuccess(t *testing.T) {
 	}, nil)
 	st.On("UpdateSessionActivity", "s1", "/workspace", mock.AnythingOfType("time.Time")).Return(nil)
 
-	result, err := mgr.Exec(context.Background(), "s1", "echo hello", 5000)
+	result, err := mgr.Exec(context.Background(), "s1", "echo hello", 5000, false)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, result.ExitCode)
@@ -57,7 +57,7 @@ func TestExecNotFound(t *testing.T) {
 
 	st.On("GetSession", "nonexistent").Return(nil, nil)
 
-	_, err := mgr.Exec(context.Background(), "nonexistent", "ls", 0)
+	_, err := mgr.Exec(context.Background(), "nonexistent", "ls", 0, false)
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -68,7 +68,7 @@ func TestExecExpired(t *testing.T) {
 
 	st.On("GetSession", "expired").Return(sess, nil)
 
-	_, err := mgr.Exec(context.Background(), "expired", "ls", 0)
+	_, err := mgr.Exec(context.Background(), "expired", "ls", 0, false)
 	assert.ErrorIs(t, err, ErrExpired)
 }
 
@@ -79,7 +79,7 @@ func TestExecNotRunning(t *testing.T) {
 
 	st.On("GetSession", "stopped").Return(sess, nil)
 
-	_, err := mgr.Exec(context.Background(), "stopped", "ls", 0)
+	_, err := mgr.Exec(context.Background(), "stopped", "ls", 0, false)
 	assert.ErrorIs(t, err, ErrNotRunning)
 }
 
@@ -93,7 +93,7 @@ func TestExecRunnerError(t *testing.T) {
 		Error: "command not found",
 	}, nil)
 
-	_, err := mgr.Exec(context.Background(), "s1", "badcmd", 0)
+	_, err := mgr.Exec(context.Background(), "s1", "badcmd", 0, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "runner error")
 }
@@ -105,7 +105,7 @@ func TestExecRuntimeFailure(t *testing.T) {
 	st.On("GetSession", "s1").Return(sess, nil)
 	rt.On("Exec", mock.Anything, "s1", mock.Anything).Return(nil, fmt.Errorf("runtime exec failed"))
 
-	_, err := mgr.Exec(context.Background(), "s1", "ls", 0)
+	_, err := mgr.Exec(context.Background(), "s1", "ls", 0, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "exec")
 }
@@ -125,7 +125,7 @@ func TestExecStreamSuccess(t *testing.T) {
 	st.On("UpdateSessionActivity", "s1", "/workspace", mock.AnythingOfType("time.Time")).Return(nil)
 
 	chunkChan := make(chan ExecChunk, 10)
-	err := mgr.ExecStream(context.Background(), "s1", "echo streaming output", 5000, chunkChan)
+	err := mgr.ExecStream(context.Background(), "s1", "echo streaming output", 5000, false, chunkChan)
 	require.NoError(t, err)
 
 	chunk := <-chunkChan
@@ -148,7 +148,7 @@ func TestExecTimeoutEnforcement(t *testing.T) {
 	}, nil)
 	st.On("UpdateSessionActivity", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	_, err := mgr.Exec(context.Background(), "s1", "echo ok", 999999)
+	_, err := mgr.Exec(context.Background(), "s1", "echo ok", 999999, false)
 	require.NoError(t, err)
 }
 
@@ -163,7 +163,7 @@ func TestExecTimeoutMappedToErrTimeout(t *testing.T) {
 		Output:   "timeout: command exceeded 30s",
 	}, nil)
 
-	_, err := mgr.Exec(context.Background(), "s1", "sleep 999", 1000)
+	_, err := mgr.Exec(context.Background(), "s1", "sleep 999", 1000, false)
 	assert.ErrorIs(t, err, ErrTimeout)
 }
 
@@ -179,7 +179,7 @@ func TestExecStreamTimeoutMappedToErrTimeout(t *testing.T) {
 	}, nil)
 
 	chunkChan := make(chan ExecChunk, 1)
-	err := mgr.ExecStream(context.Background(), "s1", "sleep 999", 1000, chunkChan)
+	err := mgr.ExecStream(context.Background(), "s1", "sleep 999", 1000, false, chunkChan)
 	assert.ErrorIs(t, err, ErrTimeout)
 }
 
@@ -197,7 +197,7 @@ func TestExecLargeCommandUsesStagedPath(t *testing.T) {
 	})).Return(&protocol.Response{Type: protocol.ResponseExec, ExitCode: 0, Cwd: "/workspace", Output: "ok", DurationMs: 10}, nil).Once()
 	st.On("UpdateSessionActivity", "s1", "/workspace", mock.AnythingOfType("time.Time")).Return(nil)
 
-	result, err := mgr.Exec(context.Background(), "s1", largeCmd, 5000)
+	result, err := mgr.Exec(context.Background(), "s1", largeCmd, 5000, false)
 	require.NoError(t, err)
 	assert.Equal(t, "ok", result.Output)
 }
@@ -217,9 +217,23 @@ func TestExecStreamLargeCommandUsesStagedPath(t *testing.T) {
 	st.On("UpdateSessionActivity", "s1", "/workspace", mock.AnythingOfType("time.Time")).Return(nil)
 
 	chunkChan := make(chan ExecChunk, 1)
-	err := mgr.ExecStream(context.Background(), "s1", largeCmd, 5000, chunkChan)
+	err := mgr.ExecStream(context.Background(), "s1", largeCmd, 5000, false, chunkChan)
 	require.NoError(t, err)
 	chunk := <-chunkChan
 	assert.True(t, chunk.Done)
 	assert.Equal(t, "stream", chunk.Output)
+}
+
+func TestExecRawOutputPropagatesToRuntime(t *testing.T) {
+	mgr, rt, st := newTestManager()
+	sess := runningSession("s1")
+
+	st.On("GetSession", "s1").Return(sess, nil)
+	rt.On("Exec", mock.Anything, "s1", mock.MatchedBy(func(req protocol.Request) bool {
+		return req.Type == protocol.RequestExec && req.RawOutput
+	})).Return(&protocol.Response{Type: protocol.ResponseExec, ExitCode: 0, Cwd: "/workspace", Output: "ok", DurationMs: 10}, nil)
+	st.On("UpdateSessionActivity", "s1", "/workspace", mock.AnythingOfType("time.Time")).Return(nil)
+
+	_, err := mgr.Exec(context.Background(), "s1", "echo ok", 5000, true)
+	require.NoError(t, err)
 }

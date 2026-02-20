@@ -18,7 +18,7 @@ func TestHandleExec_Success(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Exec", mock.Anything, "a1b2c3d4-e5f", "echo hello", 5000).Return(&session.ExecResult{
+	mockMgr.On("Exec", mock.Anything, "a1b2c3d4-e5f", "echo hello", 5000, false).Return(&session.ExecResult{
 		ExitCode:   0,
 		Cwd:        "/workspace",
 		Output:     "hello\n",
@@ -60,7 +60,7 @@ func TestHandleExec_NotFound(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Exec", mock.Anything, "00000000-001", "ls", 0).Return(nil, fmt.Errorf("%w: 00000000-001", session.ErrNotFound))
+	mockMgr.On("Exec", mock.Anything, "00000000-001", "ls", 0, false).Return(nil, fmt.Errorf("%w: 00000000-001", session.ErrNotFound))
 
 	body := `{"cmd":"ls"}`
 	req := httptest.NewRequest("POST", "/v1/sessions/00000000-001/exec", strings.NewReader(body))
@@ -136,4 +136,26 @@ func TestHandleExec_CmdTooLargeIncludesDetails(t *testing.T) {
 	assert.Equal(t, float64(1024*1024+1), apiErr.Details["cmd_bytes"])
 	assert.Equal(t, float64(1024*1024), apiErr.Details["max_cmd_bytes"])
 	assert.Contains(t, apiErr.Details["recommendation"], "fs/write")
+}
+
+func TestHandleExec_RawOutputFlagPassThrough(t *testing.T) {
+	mockMgr := &MockSessionService{}
+	s := testAPIServer(mockMgr)
+
+	mockMgr.On("Exec", mock.Anything, "a1b2c3d4-e5f", "echo hello", 5000, true).Return(&session.ExecResult{
+		ExitCode:   0,
+		Cwd:        "/workspace",
+		Output:     "hello\r\n",
+		DurationMs: 42,
+	}, nil)
+
+	body := `{"cmd":"echo hello","timeout_ms":5000,"raw_output":true}`
+	req := httptest.NewRequest("POST", "/v1/sessions/a1b2c3d4-e5f/exec", strings.NewReader(body))
+	req.SetPathValue("id", "a1b2c3d4-e5f")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	s.handleExec(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
 }

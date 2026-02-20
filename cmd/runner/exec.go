@@ -35,7 +35,7 @@ func (s *server) handleExec(req protocol.Request) protocol.Response {
 	}
 
 	// Wait for command completion
-	return s.waitForCompletion(req.ID, beginMarker, endMarker, timeout, start)
+	return s.waitForCompletion(req.ID, beginMarker, endMarker, req.RawOutput, timeout, start)
 }
 
 // getTimeout returns command timeout with 30s default.
@@ -70,7 +70,7 @@ func buildWrappedCommand(beginMarker, endMarker, cmd string) string {
 func endSentinelLine(endMarker string) string { return "\n" + endMarker }
 
 // waitForCompletion polls for command output until end sentinel or timeout.
-func (s *server) waitForCompletion(requestID, beginMarker, endMarker string, timeout time.Duration, start time.Time) protocol.Response {
+func (s *server) waitForCompletion(requestID, beginMarker, endMarker string, rawOutput bool, timeout time.Duration, start time.Time) protocol.Response {
 	deadline := time.After(timeout)
 	var accumulated []byte
 	endLine := endSentinelLine(endMarker)
@@ -88,7 +88,7 @@ func (s *server) waitForCompletion(requestID, beginMarker, endMarker string, tim
 
 			full := string(accumulated)
 			if idx := strings.Index(full, endLine); idx >= 0 {
-				return buildExecResponse(requestID, full, beginMarker, endMarker, start)
+				return buildExecResponse(requestID, full, beginMarker, endMarker, rawOutput, start)
 			}
 
 			// Guard against runaway output
@@ -107,11 +107,17 @@ func (s *server) waitForCompletion(requestID, beginMarker, endMarker string, tim
 }
 
 // buildExecResponse parses command output and builds response.
-func buildExecResponse(requestID, full, beginMarker, endMarker string, start time.Time) protocol.Response {
+func buildExecResponse(requestID, full, beginMarker, endMarker string, rawOutput bool, start time.Time) protocol.Response {
 	exitCode, cwd := parseEndSentinel(full, endMarker)
 	output := extractOutput(full, beginMarker, endMarker)
-	output = removeSentinelLines(output)
-	output = stripANSI(output)
+	if rawOutput {
+		output = extractRawOutput(full, beginMarker, endMarker)
+	}
+	if !rawOutput {
+		output = removeSentinelLines(output)
+		output = normalizeLineEndings(output)
+		output = stripANSI(output)
+	}
 	truncated := truncateOutput(&output)
 
 	return protocol.Response{
@@ -123,6 +129,11 @@ func buildExecResponse(requestID, full, beginMarker, endMarker string, start tim
 		Truncated:  truncated,
 		DurationMs: time.Since(start).Milliseconds(),
 	}
+}
+
+func normalizeLineEndings(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\r", "")
 }
 
 // parseEndSentinel extracts exit code and cwd from end marker line.
@@ -199,6 +210,30 @@ func extractOutput(full, beginMarker, endMarker string) string {
 	}
 
 	return strings.TrimRight(output, "\n")
+}
+
+func extractRawOutput(full, beginMarker, endMarker string) string {
+	output := full
+
+	beginLine := "\n" + beginMarker
+	if idx := strings.Index(output, beginLine); idx >= 0 {
+		output = output[idx+len(beginLine):]
+		if nl := strings.Index(output, "\n"); nl >= 0 {
+			output = output[nl+1:]
+		}
+	} else if strings.HasPrefix(output, beginMarker) {
+		output = output[len(beginMarker):]
+		if nl := strings.Index(output, "\n"); nl >= 0 {
+			output = output[nl+1:]
+		}
+	}
+
+	endLine := endSentinelLine(endMarker)
+	if endIdx := strings.Index(output, endLine); endIdx >= 0 {
+		output = output[:endIdx]
+	}
+
+	return output
 }
 
 // truncateOutput limits output size to protocol maximum.

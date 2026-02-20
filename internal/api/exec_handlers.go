@@ -11,6 +11,7 @@ import (
 type execRequest struct {
 	Cmd       string `json:"cmd"`
 	TimeoutMs int    `json:"timeout_ms"`
+	RawOutput bool   `json:"raw_output,omitempty"`
 }
 
 func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +30,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Debug("exec", "session_id", id, "cmd", req.Cmd, "timeout_ms", req.TimeoutMs)
-	result, err := s.manager.Exec(r.Context(), id, req.Cmd, req.TimeoutMs)
+	result, err := s.manager.Exec(r.Context(), id, req.Cmd, req.TimeoutMs, req.RawOutput)
 	if err != nil {
 		s.logger.Error("exec", "session_id", id, "error", err)
 		writeAPIError(w, err)
@@ -66,7 +67,7 @@ func (s *Server) handleExecStream(w http.ResponseWriter, r *http.Request) {
 	errChan := make(chan error, 1)
 
 	go func() {
-		err := s.manager.ExecStream(r.Context(), id, req.Cmd, req.TimeoutMs, chunkChan)
+		err := s.manager.ExecStream(r.Context(), id, req.Cmd, req.TimeoutMs, req.RawOutput, chunkChan)
 		if err != nil {
 			errChan <- err
 		}

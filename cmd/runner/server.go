@@ -34,6 +34,7 @@ func runServer() {
 
 	startPTYReader(srv, ptmx)
 	waitForShellReady(srv)
+	configureShellForAPI(srv)
 
 	listener := setupSocket()
 	defer listener.Close()
@@ -42,6 +43,18 @@ func runServer() {
 	handleShutdown(listener, cmd)
 
 	serveRequests(srv, listener)
+}
+
+// configureShellForAPI applies shell settings for clean non-interactive exec output.
+func configureShellForAPI(srv *server) {
+	// Disable terminal input echo so PTY output doesn't include echoed commands.
+	if _, err := srv.ptmx.Write([]byte("stty -echo\n")); err != nil {
+		fmt.Fprintf(os.Stderr, "configure shell: %v\n", err)
+		os.Exit(1)
+	}
+	// Let shell process the setup command, then clear any prompt/noise.
+	time.Sleep(50 * time.Millisecond)
+	srv.shellBuf.ReadAndReset()
 }
 
 // findShell locates bash or sh on the system.

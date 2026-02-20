@@ -12,7 +12,7 @@ import (
 	"github.com/p-arndt/sandkasten/protocol"
 )
 
-func (m *Manager) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int) (*ExecResult, error) {
+func (m *Manager) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int, rawOutput bool) (*ExecResult, error) {
 	sess, err := m.validateSession(sessionID)
 	if err != nil {
 		return nil, err
@@ -27,7 +27,7 @@ func (m *Manager) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int
 
 	execID := uuid.New().String()[:8]
 
-	execReq, err := m.prepareExecRequest(ctx, sess.ID, execID, cmd, timeoutMs)
+	execReq, err := m.prepareExecRequest(ctx, sess.ID, execID, cmd, timeoutMs, rawOutput)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (m *Manager) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int
 	}, nil
 }
 
-func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeoutMs int, chunkChan chan<- ExecChunk) error {
+func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeoutMs int, rawOutput bool, chunkChan chan<- ExecChunk) error {
 	sess, err := m.validateSession(sessionID)
 	if err != nil {
 		return err
@@ -72,7 +72,7 @@ func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeout
 	execID := uuid.New().String()[:8]
 	startTime := time.Now()
 
-	execReq, err := m.prepareExecRequest(ctx, sess.ID, execID, cmd, timeoutMs)
+	execReq, err := m.prepareExecRequest(ctx, sess.ID, execID, cmd, timeoutMs, rawOutput)
 	if err != nil {
 		return err
 	}
@@ -105,13 +105,14 @@ func (m *Manager) ExecStream(ctx context.Context, sessionID, cmd string, timeout
 	return nil
 }
 
-func (m *Manager) prepareExecRequest(ctx context.Context, sessionID, execID, cmd string, timeoutMs int) (protocol.Request, error) {
+func (m *Manager) prepareExecRequest(ctx context.Context, sessionID, execID, cmd string, timeoutMs int, rawOutput bool) (protocol.Request, error) {
 	if len(cmd) <= protocol.MaxExecInlineCmdBytes {
 		return protocol.Request{
 			ID:        execID,
 			Type:      protocol.RequestExec,
 			Cmd:       cmd,
 			TimeoutMs: timeoutMs,
+			RawOutput: rawOutput,
 		}, nil
 	}
 
@@ -135,6 +136,7 @@ func (m *Manager) prepareExecRequest(ctx context.Context, sessionID, execID, cmd
 		Type:      protocol.RequestExec,
 		Cmd:       stagedCmd,
 		TimeoutMs: timeoutMs,
+		RawOutput: rawOutput,
 	}, nil
 }
 

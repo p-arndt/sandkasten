@@ -13,13 +13,14 @@ export class Session {
 
   async exec(
     cmd: string,
-    opts?: { timeoutMs?: number }
+    opts?: { timeoutMs?: number; rawOutput?: boolean }
   ): Promise<ExecResult> {
     const res = await this.client.fetch(`/v1/sessions/${this.id}/exec`, {
       method: "POST",
       body: JSON.stringify({
         cmd,
         timeout_ms: opts?.timeoutMs,
+        raw_output: opts?.rawOutput,
       }),
     });
     return res.json();
@@ -27,13 +28,14 @@ export class Session {
 
   async *execStream(
     cmd: string,
-    opts?: { timeoutMs?: number }
+    opts?: { timeoutMs?: number; rawOutput?: boolean }
   ): AsyncIterableIterator<ExecChunk> {
     const res = await this.client.fetch(`/v1/sessions/${this.id}/exec/stream`, {
       method: "POST",
       body: JSON.stringify({
         cmd,
         timeout_ms: opts?.timeoutMs,
+        raw_output: opts?.rawOutput,
       }),
     });
 

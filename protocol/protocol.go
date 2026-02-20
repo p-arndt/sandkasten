@@ -10,6 +10,7 @@ type Request struct {
 	// Exec fields
 	Cmd       string `json:"cmd,omitempty"`
 	TimeoutMs int    `json:"timeout_ms,omitempty"`
+	RawOutput bool   `json:"raw_output,omitempty"`
 
 	// Write fields
 	Path          string `json:"path,omitempty"`

@@ -49,16 +49,16 @@ func (m *MockSessionService) Destroy(ctx context.Context, sessionID string) erro
 	return args.Error(0)
 }
 
-func (m *MockSessionService) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int) (*session.ExecResult, error) {
-	args := m.Called(ctx, sessionID, cmd, timeoutMs)
+func (m *MockSessionService) Exec(ctx context.Context, sessionID, cmd string, timeoutMs int, rawOutput bool) (*session.ExecResult, error) {
+	args := m.Called(ctx, sessionID, cmd, timeoutMs, rawOutput)
 	if result := args.Get(0); result != nil {
 		return result.(*session.ExecResult), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *MockSessionService) ExecStream(ctx context.Context, sessionID, cmd string, timeoutMs int, chunkChan chan<- session.ExecChunk) error {
-	args := m.Called(ctx, sessionID, cmd, timeoutMs, chunkChan)
+func (m *MockSessionService) ExecStream(ctx context.Context, sessionID, cmd string, timeoutMs int, rawOutput bool, chunkChan chan<- session.ExecChunk) error {
+	args := m.Called(ctx, sessionID, cmd, timeoutMs, rawOutput, chunkChan)
 	return args.Error(0)
 }
 

@@ -110,7 +110,8 @@ POST /v1/sessions/{id}/exec
 ```json
 {
   "cmd": "python3 -c 'print(42)'",
-  "timeout_ms": 30000
+  "timeout_ms": 30000,
+  "raw_output": false
 }
 ```
 
@@ -128,6 +129,8 @@ POST /v1/sessions/{id}/exec
 **Notes:**
 - Shell is persistent (cd, env vars, background processes persist)
 - Output is combined stdout+stderr
+- Output is cleaned by default (no echoed command/prompt noise, normalized newlines, ANSI stripped)
+- Set `raw_output: true` to get raw PTY output for debugging
 - Truncated after 1MB
 - Returns when command completes
 - Large commands are supported: commands over 16 KiB are staged as a temporary script in `/workspace/.sandkasten/` and then executed via a short command
@@ -139,7 +142,7 @@ POST /v1/sessions/{id}/exec
 POST /v1/sessions/{id}/exec/stream
 ```
 
-**Request:** Same as blocking exec
+**Request:** Same as blocking exec (`raw_output` also supported)
 
 **Response:** Server-Sent Events (SSE)
 

@@ -43,6 +43,7 @@ class Session:
         cmd: str,
         *,
         timeout_ms: int = 30000,
+        raw_output: bool = False,
     ) -> ExecResult:
         """Execute a shell command in the sandbox.
 
@@ -54,6 +55,7 @@ class Session:
         Args:
             cmd: Shell command to execute
             timeout_ms: Timeout in milliseconds (default 30000)
+            raw_output: Return raw PTY output (keeps ANSI and CRLF)
 
         Returns:
             ExecResult with exit code, output, and current directory
@@ -71,7 +73,7 @@ class Session:
         """
         resp = await self._client._http.post(
             f"/v1/sessions/{self._id}/exec",
-            json={"cmd": cmd, "timeout_ms": timeout_ms},
+            json={"cmd": cmd, "timeout_ms": timeout_ms, "raw_output": raw_output},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -89,6 +91,7 @@ class Session:
         cmd: str,
         *,
         timeout_ms: int = 30000,
+        raw_output: bool = False,
     ) -> AsyncIterator[ExecChunk]:
         """Execute a command and stream output chunks in real-time.
 
@@ -100,6 +103,7 @@ class Session:
         Args:
             cmd: Shell command to execute
             timeout_ms: Timeout in milliseconds (default 30000)
+            raw_output: Return raw PTY output (keeps ANSI and CRLF)
 
         Yields:
             ExecChunk objects with output and metadata
@@ -117,7 +121,7 @@ class Session:
         async with self._client._http.stream(
             "POST",
             f"/v1/sessions/{self._id}/exec/stream",
-            json={"cmd": cmd, "timeout_ms": timeout_ms},
+            json={"cmd": cmd, "timeout_ms": timeout_ms, "raw_output": raw_output},
         ) as resp:
             resp.raise_for_status()
 
