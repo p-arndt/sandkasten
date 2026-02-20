@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -130,6 +131,16 @@ func nsinitMain(cfg NsinitConfig) error {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
+	}
+
+	// Wait for cgroup attachment from host daemon
+	for i := 0; i < 100; i++ {
+		if data, err := os.ReadFile("/proc/self/cgroup"); err == nil {
+			if strings.Contains(string(data), cfg.SessionID) {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	argv := []string{cfg.RunnerPath}

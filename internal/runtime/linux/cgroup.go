@@ -42,18 +42,26 @@ func CgroupPath(sessionID string) string {
 }
 
 func enableControllers(cgPath string) {
-	data, err := os.ReadFile(filepath.Join(cgPath, "cgroup.controllers"))
-	if err != nil {
-		return
-	}
-	var enable []string
-	for _, c := range strings.Split(strings.TrimSpace(string(data)), " ") {
-		if c == "cpu" || c == "memory" || c == "pids" {
-			enable = append(enable, "+"+c)
+	parts := strings.Split(strings.TrimPrefix(cgPath, "/sys/fs/cgroup"), "/")
+	current := "/sys/fs/cgroup"
+
+	for _, part := range parts {
+		if part != "" {
+			current = filepath.Join(current, part)
 		}
-	}
-	if len(enable) > 0 {
-		_ = os.WriteFile(filepath.Join(cgPath, "cgroup.subtree_control"), []byte(strings.Join(enable, " ")), 0644)
+		data, err := os.ReadFile(filepath.Join(current, "cgroup.controllers"))
+		if err != nil {
+			continue
+		}
+		var enable []string
+		for _, c := range strings.Split(strings.TrimSpace(string(data)), " ") {
+			if c == "cpu" || c == "memory" || c == "pids" {
+				enable = append(enable, "+"+c)
+			}
+		}
+		if len(enable) > 0 {
+			_ = os.WriteFile(filepath.Join(current, "cgroup.subtree_control"), []byte(strings.Join(enable, " ")), 0644)
+		}
 	}
 }
 
@@ -64,7 +72,6 @@ func CreateCgroup(sessionID string, cfg CgroupConfig) (string, error) {
 		return "", fmt.Errorf("create parent cgroup %s: %w", parentPath, err)
 	}
 
-	enableControllers(basePath)
 	enableControllers(parentPath)
 
 	cgPath := CgroupPath(sessionID)
@@ -82,6 +89,12 @@ func CreateCgroup(sessionID string, cfg CgroupConfig) (string, error) {
 			} else {
 				return "", fmt.Errorf("set memory.max: %w", err)
 			}
+		}
+
+		// Set swap limit to 0 to prevent bypassing memory limit via swap
+		swapPath := filepath.Join(cgPath, "memory.swap.max")
+		if err := os.WriteFile(swapPath, []byte("0"), 0644); err != nil {
+			// Ignore if swap controller is not enabled or available
 		}
 	}
 
