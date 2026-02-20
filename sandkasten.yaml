@@ -1,4 +1,4 @@
-listen: "127.0.0.1:8080"
+listen: "0.0.0.0:8080"
 api_key: "sk-test"
 data_dir: "/var/lib/sandkasten"
 default_image: "python"
@@ -6,6 +6,6 @@ defaults:
   cpu_limit: 2      # 2 CPU cores
   mem_limit_mb: 1024   # 1024 MB  
   pids_limit: 256     # 256 processes
-  network_mode: "none"
+  network_mode: "bridge"
 security:
   seccomp: "strict"

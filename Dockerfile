@@ -22,10 +22,12 @@ RUN go build -o bin/imgbuilder ./cmd/imgbuilder
 FROM debian:bookworm-slim
 
 # Install runtime dependencies
-# - iproute2: Required for network bridge setup
+# - iproute2 + iptables + procps: Required for sandbox bridge networking
 # - ca-certificates: Required for HTTPS requests (if any)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     iproute2 \
+    iptables \
+    procps \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -38,7 +40,7 @@ COPY --from=builder /app/bin/imgbuilder /bin/imgbuilder
 RUN mkdir -p /var/lib/sandkasten /etc/sandkasten
 
 # Copy default config
-COPY default-config.yaml /etc/sandkasten/sandkasten.yaml
+COPY sandkasten.yaml /etc/sandkasten/sandkasten.yaml
 
 # Expose API port
 EXPOSE 8080
