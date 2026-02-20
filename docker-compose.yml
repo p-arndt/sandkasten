@@ -1,8 +1,8 @@
-version: "3.9"
-
 services:
   sandkasten:
-    image: sandkasten:local
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: sandkasten
     restart: unless-stopped
 
@@ -20,3 +20,5 @@ services:
       SANDKASTEN_API_KEY: sk-test
 
     command: ["/bin/sandkasten", "--config", "/etc/sandkasten/sandkasten.yaml"]
+    ports: 
+      - "8080:8080"
