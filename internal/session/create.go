@@ -26,33 +26,24 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 		return nil, err
 	}
 
-	// Try pool acquire first (only for sessions without workspace)
-	if m.pool != nil && workspaceID == "" {
+	// Try pool acquire first (works for both with and without workspace)
+	if m.pool != nil {
 		if sessionID, ok := m.pool.Get(ctx, image, workspaceID); ok {
 			sess, err := m.store.GetSession(sessionID)
-			if err != nil || sess == nil {
-				// Pool returned stale ID; fall through to normal create
-			} else {
-				now := time.Now().UTC()
-				expiresAt := now.Add(time.Duration(ttl) * time.Second)
-				if err := m.store.UpdateSessionStatus(sessionID, "running"); err != nil {
-					// Fall through to normal create on store error
-				} else if err := m.store.UpdateSessionActivity(sessionID, sess.Cwd, expiresAt); err != nil {
-					_ = m.store.UpdateSessionStatus(sessionID, "destroyed")
-					_ = m.runtime.Destroy(ctx, sessionID)
-					// Fall through to normal create
-				} else {
-					// Background refill to replenish pool
+			if err == nil && sess != nil {
+				// Bind-mount workspace if requested (pooled sessions start without workspace)
+				if workspaceID != "" {
+					if err := m.runtime.MountWorkspace(ctx, sessionID, workspaceID); err != nil {
+						_ = m.runtime.Destroy(ctx, sessionID)
+					} else if err := m.store.UpdateSessionWorkspace(sessionID, workspaceID); err != nil {
+						_ = m.runtime.Destroy(ctx, sessionID)
+					} else if info := m.finishPoolAcquire(ctx, sessionID, sess, workspaceID, ttl); info != nil {
+						go m.pool.Refill(context.Background(), image, 1)
+						return info, nil
+					}
+				} else if info := m.finishPoolAcquire(ctx, sessionID, sess, workspaceID, ttl); info != nil {
 					go m.pool.Refill(context.Background(), image, 1)
-					return &SessionInfo{
-						ID:          sessionID,
-						Image:       image,
-						Status:      "running",
-						Cwd:         sess.Cwd,
-						WorkspaceID: workspaceID,
-						CreatedAt:   sess.CreatedAt,
-						ExpiresAt:   expiresAt,
-					}, nil
+					return info, nil
 				}
 			}
 		}
@@ -90,7 +81,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 	}
 
 	// Background refill when pool is enabled (replenish after normal create)
-	if m.pool != nil && workspaceID == "" {
+	if m.pool != nil {
 		go m.pool.Refill(context.Background(), image, 1)
 	}
 
@@ -103,6 +94,30 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 		CreatedAt:   now,
 		ExpiresAt:   expiresAt,
 	}, nil
+}
+
+// finishPoolAcquire updates session status/activity and returns SessionInfo on success.
+// Returns nil on any error (caller should fall through to normal create).
+func (m *Manager) finishPoolAcquire(ctx context.Context, sessionID string, sess *storemod.Session, workspaceID string, ttl int) *SessionInfo {
+	now := time.Now().UTC()
+	expiresAt := now.Add(time.Duration(ttl) * time.Second)
+	if err := m.store.UpdateSessionStatus(sessionID, "running"); err != nil {
+		return nil
+	}
+	if err := m.store.UpdateSessionActivity(sessionID, sess.Cwd, expiresAt); err != nil {
+		_ = m.store.UpdateSessionStatus(sessionID, "destroyed")
+		_ = m.runtime.Destroy(ctx, sessionID)
+		return nil
+	}
+	return &SessionInfo{
+		ID:          sessionID,
+		Image:       sess.Image,
+		Status:      "running",
+		Cwd:         sess.Cwd,
+		WorkspaceID: workspaceID,
+		CreatedAt:   sess.CreatedAt,
+		ExpiresAt:   expiresAt,
+	}
 }
 
 func (m *Manager) resolveImage(image string) string {

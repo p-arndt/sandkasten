@@ -10,14 +10,15 @@ Daemon Startup
 ├─ Store sessions with status "pool_idle" (not subject to TTL expiry)
 └─ Pool ready
 
-User Creates Session (without workspace_id)
-├─ pool.Get(image) → session available? → acquire from pool (~50ms) ✅
+User Creates Session (with or without workspace_id)
+├─ pool.Get(image) → session available? → acquire from pool (~50–80ms) ✅
+├─ If workspace_id: nsenter bind-mount workspace into /workspace
 ├─ Update status to "running", set TTL, return to user
 ├─ Refill pool in background (replenish 1 session)
 └─ If pool empty → normal create (~200–450ms), then refill in background
 ```
 
-**Scope:** The pool is used only for sessions **without** `workspace_id`. Sessions with a workspace always use the normal create path, because workspace sessions require a bind-mount at create time.
+**Scope:** The pool supports both sessions **with** and **without** `workspace_id`. Pooled sessions start without a workspace; when a request includes `workspace_id`, the workspace directory is bind-mounted into `/workspace` at acquire time via `nsenter`.
 
 ## Configuration
 
@@ -53,6 +54,13 @@ For typical usage (~100–200ms cold create), pooling is optional.
 - **Refill:** After each create (pool hit or normal), a background goroutine calls `Refill` to add one session back for that image.
 - **Release:** When a session is destroyed, it is not returned to the pool. The pool is replenished on demand by `Refill` after future creates.
 
-## Future Work (Phase 1.5)
+## Workspace Support
 
-- Support `workspace_id` on acquire via bind-mount at runtime (documented as future extension).
+Sessions created with `workspace_id` can also use the pool. The flow:
+
+1. Take an idle session from the pool (created without workspace)
+2. Use `nsenter` to enter the sandbox's mount namespace
+3. Bind-mount the workspace directory into `/workspace`
+4. Update the store and return the session to the user
+
+Adds ~10–30ms to pool acquire for the bind-mount step, still much faster than cold create. Requires `workspace.enabled: true` and the workspace to exist (created via `ensureWorkspace` before acquire).

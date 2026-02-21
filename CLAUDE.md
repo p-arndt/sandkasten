@@ -94,6 +94,7 @@ sudo ./bin/imgbuilder import --name python --tar python.tar.gz
    - Sets up namespaces (mount, pid, uts, ipc, net)
    - Configures cgroups v2 limits
    - Performs pivot_root into sandbox
+   - `MountWorkspace`: bind-mounts workspace into pooled session at acquire time (via nsenter)
 
 ### Communication Flow
 

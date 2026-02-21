@@ -71,11 +71,10 @@ func New(cfg *config.Config, poolConfig PoolConfig) *poolImpl {
 	}
 }
 
-// Get acquires an idle session. workspaceID must be "" for pool to be used.
+// Get acquires an idle session for the given image.
+// workspaceID is ignored for pool lookup; sessions are keyed by image only.
+// When workspaceID is non-empty, the caller must bind-mount the workspace into the session before use.
 func (p *poolImpl) Get(ctx context.Context, image string, workspaceID string) (string, bool) {
-	if workspaceID != "" {
-		return "", false
-	}
 	target, ok := p.target[image]
 	if !ok || target <= 0 {
 		return "", false

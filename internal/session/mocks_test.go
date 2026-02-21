@@ -58,6 +58,11 @@ func (m *MockRuntimeDriver) Close() error {
 	return args.Error(0)
 }
 
+func (m *MockRuntimeDriver) MountWorkspace(ctx context.Context, sessionID string, workspaceID string) error {
+	args := m.Called(ctx, sessionID, workspaceID)
+	return args.Error(0)
+}
+
 type MockSessionStore struct {
 	mock.Mock
 }
@@ -90,6 +95,11 @@ func (m *MockSessionStore) UpdateSessionActivity(id string, cwd string, expiresA
 
 func (m *MockSessionStore) UpdateSessionStatus(id string, status string) error {
 	args := m.Called(id, status)
+	return args.Error(0)
+}
+
+func (m *MockSessionStore) UpdateSessionWorkspace(id string, workspaceID string) error {
+	args := m.Called(id, workspaceID)
 	return args.Error(0)
 }
 

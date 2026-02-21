@@ -17,6 +17,7 @@ type RuntimeDriver interface {
 	Stats(ctx context.Context, sessionID string) (*protocol.SessionStats, error)
 	Ping(ctx context.Context) error
 	Close() error
+	MountWorkspace(ctx context.Context, sessionID string, workspaceID string) error
 }
 
 type SessionStore interface {
@@ -25,10 +26,12 @@ type SessionStore interface {
 	ListSessions() ([]*store.Session, error)
 	UpdateSessionActivity(id string, cwd string, expiresAt time.Time) error
 	UpdateSessionStatus(id string, status string) error
+	UpdateSessionWorkspace(id string, workspaceID string) error
 }
 
 // ContainerPool provides pre-warmed sessions for fast acquisition.
-// When workspaceID is non-empty, Get returns ("", false) (workspace sessions use normal create path).
+// Get returns a session for the image regardless of workspaceID; when workspaceID is non-empty,
+// the caller must bind-mount the workspace into the session before use.
 type ContainerPool interface {
 	Get(ctx context.Context, image string, workspaceID string) (string, bool)
 	Put(ctx context.Context, sessionID string) error

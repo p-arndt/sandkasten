@@ -9,3 +9,7 @@ defaults:
   network_mode: "bridge"
 security:
   seccomp: "strict"
+pool:
+  enabled: true
+  images:
+    python: 3

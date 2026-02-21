@@ -68,6 +68,11 @@ func New(dbPath string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("setting journal mode: %w", err)
 	}
+	// Wait up to 5s on lock contention (pool refill + API writes can overlap)
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("setting busy timeout: %w", err)
+	}
 
 	if _, err := db.Exec(createTableSQL); err != nil {
 		db.Close()
@@ -134,6 +139,16 @@ func (s *Store) UpdateSessionStatus(id string, status string) error {
 	)
 	if err != nil {
 		return fmt.Errorf("updating session status: %w", err)
+	}
+	return checkRowAffected(result, id)
+}
+
+func (s *Store) UpdateSessionWorkspace(id string, workspaceID string) error {
+	result, err := s.db.Exec(
+		`UPDATE sessions SET workspace_id = ? WHERE id = ?`, workspaceID, id,
+	)
+	if err != nil {
+		return fmt.Errorf("updating session workspace: %w", err)
 	}
 	return checkRowAffected(result, id)
 }

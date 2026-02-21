@@ -28,4 +28,8 @@ type Driver interface {
 	Stats(ctx context.Context, sessionID string) (*protocol.SessionStats, error)
 	Ping(ctx context.Context) error
 	Close() error
+
+	// MountWorkspace bind-mounts the workspace directory into /workspace of an existing session.
+	// Used when acquiring a pooled session for a request with workspace_id.
+	MountWorkspace(ctx context.Context, sessionID string, workspaceID string) error
 }

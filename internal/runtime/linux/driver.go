@@ -391,6 +391,39 @@ func (d *Driver) IsRunning(ctx context.Context, sessionID string) (bool, error) 
 	return d.isProcessRunning(state.InitPID)
 }
 
+// MountWorkspace bind-mounts the workspace directory into /workspace of an existing session.
+// Used when acquiring a pooled session for a request with workspace_id.
+func (d *Driver) MountWorkspace(ctx context.Context, sessionID string, workspaceID string) error {
+	statePath := filepath.Join(d.dataDir, "sessions", sessionID, "state.json")
+	state, err := d.readState(statePath)
+	if err != nil {
+		return fmt.Errorf("read state: %w", err)
+	}
+	if state.InitPID <= 0 || state.Mnt == "" {
+		return fmt.Errorf("invalid session state for mount workspace")
+	}
+
+	workspaceSrc := filepath.Join(d.dataDir, "workspaces", workspaceID)
+	if _, err := os.Stat(workspaceSrc); err != nil {
+		return fmt.Errorf("workspace directory %s: %w", workspaceID, err)
+	}
+
+	// Chown workspace for runner (same as Create)
+	runnerUID, runnerGID := 1000, 1000
+	if err := os.Chown(workspaceSrc, runnerUID, runnerGID); err != nil {
+		return fmt.Errorf("chown workspace: %w", err)
+	}
+
+	workspaceDst := filepath.Join(state.Mnt, "workspace")
+	cmd := exec.CommandContext(ctx, "nsenter", "-t", fmt.Sprint(state.InitPID), "-m",
+		"mount", "--bind", workspaceSrc, workspaceDst)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nsenter mount workspace: %w (output: %s)", err, string(out))
+	}
+	return nil
+}
+
 // ListSessionDirIDs returns session IDs that have a session directory on disk
 // (used by reaper for orphan cleanup).
 func (d *Driver) ListSessionDirIDs(ctx context.Context) ([]string, error) {

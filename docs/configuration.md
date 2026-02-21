@@ -124,7 +124,7 @@ pool:
 | `enabled` | bool | `false` | Enable pre-warmed session pool for sub-100ms create latency |
 | `images` | map[string]int | `{}` | Image name → number of idle sessions to keep ready |
 
-When enabled, the daemon pre-creates sandboxes for each configured image at startup. Sessions created **without** `workspace_id` are served from the pool when available (~50ms) instead of cold-create (~200–450ms). Sessions with `workspace_id` always use the normal create path. See [Session Pool](features/pool.md) for details.
+When enabled, the daemon pre-creates sandboxes for each configured image at startup. Sessions (with or without `workspace_id`) are served from the pool when available (~50–80ms) instead of cold-create (~200–450ms). For sessions with `workspace_id`, the workspace is bind-mounted at acquire time. See [Session Pool](features/pool.md) for details.
 
 ### Workspace Persistence
 
