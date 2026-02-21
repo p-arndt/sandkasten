@@ -109,6 +109,23 @@ defaults:
 | `max_exec_timeout_ms` | int | `120000` | Maximum command execution time |
 | `network_mode` | string | `none` | Network mode (`none` = no network) |
 
+### Pre-warmed Session Pool
+
+```yaml
+pool:
+  enabled: true
+  images:
+    python: 3
+    node: 2
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable pre-warmed session pool for sub-100ms create latency |
+| `images` | map[string]int | `{}` | Image name → number of idle sessions to keep ready |
+
+When enabled, the daemon pre-creates sandboxes for each configured image at startup. Sessions created **without** `workspace_id` are served from the pool when available (~50ms) instead of cold-create (~200–450ms). Sessions with `workspace_id` always use the normal create path. See [Session Pool](features/pool.md) for details.
+
 ### Workspace Persistence
 
 ```yaml
@@ -162,6 +179,7 @@ All config options can be overridden with environment variables (prefix: `SANDKA
 | `SANDKASTEN_PIDS_LIMIT` | `defaults.pids_limit` |
 | `SANDKASTEN_MAX_EXEC_TIMEOUT_MS` | `defaults.max_exec_timeout_ms` |
 | `SANDKASTEN_NETWORK_MODE` | `defaults.network_mode` |
+| `SANDKASTEN_POOL_ENABLED` | `pool.enabled` |
 | `SANDKASTEN_SECCOMP` | `security.seccomp` |
 
 Example:

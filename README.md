@@ -36,6 +36,7 @@ async with SandboxClient(base_url="...", api_key="...") as client:
 - ✅ **File Operations** - Read/write files in `/workspace`
 - ✅ **Multiple Runtimes** - Python, Node.js, or custom images
 - ✅ **Persistent Workspaces** - Directories that survive session destruction
+- ✅ **Session Pool** - Pre-warmed sessions for sub-100ms create latency (optional)
 - ✅ **Web Dashboard** - Monitor sessions, edit config
 - ✅ **Python + TypeScript SDKs** - Clean async APIs
 - ✅ **Agent-Ready** - Works with OpenAI Agents SDK, LangChain, etc.

@@ -24,17 +24,19 @@ type Manager struct {
 	store     SessionStore
 	runtime   RuntimeDriver
 	workspace WorkspaceManager
+	pool      ContainerPool
 
 	locks   map[string]*sync.Mutex
 	locksMu sync.Mutex
 }
 
-func NewManager(cfg *config.Config, st SessionStore, rt RuntimeDriver, ws WorkspaceManager) *Manager {
+func NewManager(cfg *config.Config, st SessionStore, rt RuntimeDriver, ws WorkspaceManager, pool ContainerPool) *Manager {
 	return &Manager{
 		cfg:       cfg,
 		store:     st,
 		runtime:   rt,
 		workspace: ws,
+		pool:      pool,
 		locks:     make(map[string]*sync.Mutex),
 	}
 }

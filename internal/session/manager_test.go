@@ -23,7 +23,7 @@ func newTestManager() (*Manager, *MockRuntimeDriver, *MockSessionStore) {
 	rt := &MockRuntimeDriver{}
 	st := &MockSessionStore{}
 	cfg := testConfig()
-	mgr := NewManager(cfg, st, rt, nil)
+	mgr := NewManager(cfg, st, rt, nil, nil)
 	return mgr, rt, st
 }
 

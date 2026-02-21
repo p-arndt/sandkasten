@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/p-arndt/sandkasten/internal/store"
 )
 
 type SessionManager interface {
@@ -128,7 +130,7 @@ func (r *Reaper) reconcileOrphans(ctx context.Context) {
 			r.logger.Warn("reconcile: get session for orphan check", "session_id", id, "error", err)
 			continue
 		}
-		if sess == nil || sess.Status != "running" {
+		if sess == nil || (sess.Status != "running" && sess.Status != store.StatusPoolIdle) {
 			r.logger.Info("reconcile: cleaning orphan session dir", "session_id", id)
 			if err := r.runtime.Destroy(ctx, id); err != nil {
 				r.logger.Error("reconcile: destroy orphan session", "session_id", id, "error", err)

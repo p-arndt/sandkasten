@@ -47,6 +47,9 @@ POST /v1/sessions
 }
 ```
 
+> [!TIP]
+> **Session pool:** When `pool.enabled` is true in config, sessions created **without** `workspace_id` may be served from a pre-warmed pool in ~50ms instead of ~200–450ms cold create. Sessions with `workspace_id` always use the normal create path. See [Session Pool](features/pool.md).
+
 ### Get Session
 
 ```http

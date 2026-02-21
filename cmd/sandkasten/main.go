@@ -17,7 +17,9 @@ import (
 
 	"github.com/p-arndt/sandkasten/internal/api"
 	"github.com/p-arndt/sandkasten/internal/config"
+	"github.com/p-arndt/sandkasten/internal/pool"
 	"github.com/p-arndt/sandkasten/internal/reaper"
+	runtimepkg "github.com/p-arndt/sandkasten/internal/runtime"
 	"github.com/p-arndt/sandkasten/internal/runtime/linux"
 	"github.com/p-arndt/sandkasten/internal/session"
 	"github.com/p-arndt/sandkasten/internal/store"
@@ -168,7 +170,32 @@ func runDaemon(args []string) int {
 	logger.Info("runtime driver OK")
 	logger.Debug("reaper and API server starting")
 
-	mgr := session.NewManager(cfg, st, rt, nil)
+	var pl session.ContainerPool
+	if cfg.Pool.Enabled {
+		poolCfg := pool.PoolConfig{
+			Store:      st,
+			Logger:     logger,
+			SessionTTL: cfg.SessionTTLSeconds,
+			PoolExpiry: 10 * 365 * 24 * time.Hour, // 10 years for pool_idle sessions
+			CreateFunc: func(ctx context.Context, sessionID string, image string) (*pool.CreateResult, error) {
+				info, err := rt.Create(ctx, runtimepkg.CreateOpts{
+					SessionID:   sessionID,
+					Image:       image,
+					WorkspaceID: "",
+				})
+				if err != nil {
+					return nil, err
+				}
+				return &pool.CreateResult{InitPID: info.InitPID, CgroupPath: info.CgroupPath}, nil
+			},
+		}
+		if p := pool.New(cfg, poolCfg); p != nil {
+			pl = p
+			go p.RefillAll(ctx)
+		}
+	}
+
+	mgr := session.NewManager(cfg, st, rt, nil, pl)
 
 	rpr := reaper.New(st, rt, 30*time.Second, logger)
 	rpr.SetSessionManager(mgr)

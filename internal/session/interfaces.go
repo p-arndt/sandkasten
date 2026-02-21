@@ -27,8 +27,12 @@ type SessionStore interface {
 	UpdateSessionStatus(id string, status string) error
 }
 
+// ContainerPool provides pre-warmed sessions for fast acquisition.
+// When workspaceID is non-empty, Get returns ("", false) (workspace sessions use normal create path).
 type ContainerPool interface {
-	Get(ctx context.Context, image string) (string, bool)
+	Get(ctx context.Context, image string, workspaceID string) (string, bool)
+	Put(ctx context.Context, sessionID string) error
+	Refill(ctx context.Context, image string, count int) error
 }
 
 type WorkspaceManager interface {

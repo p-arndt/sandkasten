@@ -58,7 +58,7 @@ func startTestServer(t *testing.T) (string, func()) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	mgr := session.NewManager(cfg, st, rt, nil)
+	mgr := session.NewManager(cfg, st, rt, nil, nil)
 
 	rpr := reaper.New(st, rt, 5*time.Second, logger)
 	rpr.SetSessionManager(mgr)

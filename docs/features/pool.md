@@ -1,71 +1,58 @@
 # Pre-warmed Session Pool
 
-> **Note:** The container pool feature is currently unavailable in v2. Session creation using native Linux sandboxing is already fast (~100-200ms), reducing the need for pre-warming.
+Pre-create sandbox sessions so that `POST /v1/sessions` can return in **sub-100ms** when a session is available in the pool (target ~50ms), instead of ~200–450ms for a cold create.
 
-## Overview
-
-In v1 (Docker-based), creating a session required:
-1. Pull image (if needed)
-2. Create container (~500ms)
-3. Start container (~1-2s)
-4. Wait for runner (~500ms)
-
-**Total: 2-3 seconds**
-
-With v2's native Linux sandboxing:
-- No container runtime overhead
-- Direct namespace/cgroup creation
-- overlayfs mounting is fast
-
-**Total: ~100-200ms** ⚡
-
-## Future Improvements
-
-The following are planned for future releases:
-
-### Warm Session Pools
-
-Pre-create sandbox processes ready for immediate use:
+## How It Works
 
 ```
 Daemon Startup
-├─ Create 3 Python sandboxes (namespaces + cgroups ready)
-├─ Create 2 Node sandboxes
-└─ Ready for instant assignment
+├─ Create N sandboxes per configured image (no workspace)
+├─ Store sessions with status "pool_idle" (not subject to TTL expiry)
+└─ Pool ready
 
-User Creates Session
-├─ Get sandbox from pool → instant! ✅
-└─ Refill pool in background
+User Creates Session (without workspace_id)
+├─ pool.Get(image) → session available? → acquire from pool (~50ms) ✅
+├─ Update status to "running", set TTL, return to user
+├─ Refill pool in background (replenish 1 session)
+└─ If pool empty → normal create (~200–450ms), then refill in background
 ```
 
-### Configuration (Planned)
+**Scope:** The pool is used only for sessions **without** `workspace_id`. Sessions with a workspace always use the normal create path, because workspace sessions require a bind-mount at create time.
+
+## Configuration
 
 ```yaml
 pool:
   enabled: true
   images:
-    python: 3
-    node: 2
+    python: 3   # keep 3 Python sessions ready
+    node: 2     # keep 2 Node sessions ready
 ```
 
-## Current Performance
+- **`enabled`** (default: `false`): Turn pooling on. Keep disabled if you don't need sub-100ms create latency.
+- **`images`**: Map of image name → number of pre-warmed sessions to maintain.
 
-| Operation | Time |
-|-----------|------|
-| Create sandbox | ~100-200ms |
-| Exec command | ~10-50ms |
-| Destroy sandbox | ~50-100ms |
+Pool images are filtered by `allowed_images`. If `allowed_images` is set and an image is not in the list, it is not pooled.
 
-For most use cases, this is fast enough that pooling is not needed.
+Environment override: `SANDKASTEN_POOL_ENABLED=true`
 
-## When Pooling Helps
+## When to Use
 
-Pooling becomes valuable when:
-- Session creation is a hot path (many per second)
-- Sub-100ms latency is critical
-- You want to hide image I/O latency
+Pooling helps when:
 
-If you need pooling now, consider:
-- Running multiple daemon instances
-- Load balancing across instances
-- Caching sessions instead of destroying them
+- Session creation is a hot path (many sessions per second)
+- Sub-100ms latency is important
+- You want to hide cold-start overhead
+
+For typical usage (~100–200ms cold create), pooling is optional.
+
+## Implementation Details
+
+- **Pool lifecycle:** At daemon startup, `RefillAll` creates the configured number of sandboxes per image. They are stored with status `pool_idle` and a far-future expiry so the reaper does not destroy them.
+- **Acquire:** `pool.Get` returns a session ID, which is removed from the pool. The session status is updated to `running` and `expires_at` is set to the user’s TTL.
+- **Refill:** After each create (pool hit or normal), a background goroutine calls `Refill` to add one session back for that image.
+- **Release:** When a session is destroyed, it is not returned to the pool. The pool is replenished on demand by `Refill` after future creates.
+
+## Future Work (Phase 1.5)
+
+- Support `workspace_id` on acquire via bind-mount at runtime (documented as future extension).

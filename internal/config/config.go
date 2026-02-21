@@ -148,4 +148,9 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("SANDKASTEN_SECCOMP"); v != "" {
 		cfg.Security.Seccomp = v
 	}
+	if v := os.Getenv("SANDKASTEN_POOL_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Pool.Enabled = b
+		}
+	}
 }

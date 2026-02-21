@@ -14,6 +14,10 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
+// StatusPoolIdle indicates a session is idle in the pre-warmed pool.
+// Reaper must not reap these sessions.
+const StatusPoolIdle = "pool_idle"
+
 type Session struct {
 	ID           string    `json:"id"`
 	Image        string    `json:"image"`
