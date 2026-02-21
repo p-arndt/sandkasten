@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -18,6 +20,11 @@ func (s *server) handleExec(req protocol.Request) protocol.Response {
 
 	if len(req.Cmd) > protocol.MaxExecInlineCmdBytes {
 		return errorResponse(req.ID, fmt.Sprintf("command too large: %d bytes (max %d); use staged exec path", len(req.Cmd), protocol.MaxExecInlineCmdBytes))
+	}
+
+	// Stateless mode: direct exec, no PTY
+	if s.ptmx == nil {
+		return s.handleExecStateless(req)
 	}
 
 	timeout := getTimeout(req.TimeoutMs)
@@ -36,6 +43,71 @@ func (s *server) handleExec(req protocol.Request) protocol.Response {
 
 	// Wait for command completion
 	return s.waitForCompletion(req.ID, beginMarker, endMarker, req.RawOutput, timeout, start)
+}
+
+// handleExecStateless runs the command directly via exec.Command, no persistent shell.
+// Saves memory and startup time. No cwd/env persistence between execs.
+func (s *server) handleExecStateless(req protocol.Request) protocol.Response {
+	timeout := getTimeout(req.TimeoutMs)
+	shell := findShell()
+
+	cmd := exec.Command(shell, "-c", req.Cmd)
+	cmd.Dir = "/workspace"
+	cmd.Env = append(cmd.Env,
+		"PATH=/usr/local/bin:/usr/bin:/bin",
+		"HOME=/home/sandbox",
+		"TERM=xterm",
+		"LANG=C.UTF-8",
+	)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	start := time.Now()
+	if err := cmd.Start(); err != nil {
+		return errorResponse(req.ID, "exec start: "+err.Error())
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	var execErr error
+	select {
+	case execErr = <-done:
+		// Command finished
+	case <-time.After(timeout):
+		cmd.Process.Kill()
+		<-done
+		return timeoutResponse(req.ID, timeout, start)
+	}
+
+	output := stdout.String() + stderr.String()
+	if !req.RawOutput {
+		output = normalizeLineEndings(output)
+		output = stripANSI(output)
+	}
+	truncated := truncateOutput(&output)
+
+	exitCode := 0
+	if execErr != nil {
+		if exitErr, ok := execErr.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+			output = output + "\nexec error: " + execErr.Error()
+		}
+	}
+
+	return protocol.Response{
+		ID:         req.ID,
+		Type:       protocol.ResponseExec,
+		ExitCode:   exitCode,
+		Cwd:        "/workspace",
+		Output:     output,
+		Truncated:  truncated,
+		DurationMs: time.Since(start).Milliseconds(),
+	}
 }
 
 // getTimeout returns command timeout with 30s default.

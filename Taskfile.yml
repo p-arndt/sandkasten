@@ -10,7 +10,7 @@ tasks:
   runner:
     desc: Build the runner binary (static Linux binary)
     cmds:
-      - go build -o bin/runner ./cmd/runner
+      - go build -ldflags="-s -w" -o bin/runner ./cmd/runner
     env:
       CGO_ENABLED: 0
       GOOS: linux

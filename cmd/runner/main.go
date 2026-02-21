@@ -22,8 +22,12 @@ func main() {
 		return
 	}
 
-	// Server mode: start shell, listen on socket
-	runServer()
+	// Server mode: start shell (or stateless direct exec), listen on socket
+	if isStatelessMode() {
+		runStatelessServer()
+	} else {
+		runServer()
+	}
 }
 
 func runClient(reqJSON string) {

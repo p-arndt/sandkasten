@@ -44,6 +44,8 @@ defaults:
   pids_limit: 256             # Process limit
   max_exec_timeout_ms: 120000 # Max exec timeout (2 min)
   network_mode: "none"        # "none" or "bridge" (requires setup)
+  exec_mode: "stateful"       # "stateful" (default) or "stateless"
+  shell_prefer: "bash"        # "bash" (default) or "sh" (lighter, e.g. busybox)
 
 # Workspace persistence
 workspace:
@@ -108,6 +110,8 @@ defaults:
 | `pids_limit` | int | `256` | Maximum number of processes |
 | `max_exec_timeout_ms` | int | `120000` | Maximum command execution time |
 | `network_mode` | string | `none` | Network mode (`none` = no network) |
+| `exec_mode` | string | `stateful` | `stateful` = persistent shell with cwd/env; `stateless` = direct exec, no shell (~1–2MB less RSS, faster startup). Stateless has no cwd/env persistence between execs. |
+| `shell_prefer` | string | `bash` | `bash` or `sh`. Prefer `sh` for minimal images (e.g. busybox) to reduce per-sandbox memory. |
 
 ### Pre-warmed Session Pool
 
@@ -179,6 +183,8 @@ All config options can be overridden with environment variables (prefix: `SANDKA
 | `SANDKASTEN_PIDS_LIMIT` | `defaults.pids_limit` |
 | `SANDKASTEN_MAX_EXEC_TIMEOUT_MS` | `defaults.max_exec_timeout_ms` |
 | `SANDKASTEN_NETWORK_MODE` | `defaults.network_mode` |
+| `SANDKASTEN_EXEC_MODE` | `defaults.exec_mode` |
+| `SANDKASTEN_SHELL_PREFER` | `defaults.shell_prefer` |
 | `SANDKASTEN_POOL_ENABLED` | `pool.enabled` |
 | `SANDKASTEN_SECCOMP` | `security.seccomp` |
 

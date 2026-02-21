@@ -35,6 +35,9 @@ type NsinitConfig struct {
 	NetworkBridge bool   `json:"network_bridge"`
 	Readonly      bool   `json:"readonly"`
 	Seccomp       string `json:"seccomp"`
+	// Runner config: passed as env to runner process
+	ShellPrefer string `json:"shell_prefer,omitempty"` // "sh" to prefer lighter shell
+	ExecMode    string `json:"exec_mode,omitempty"`    // "stateless" for direct exec, no shell
 }
 
 func IsNsinit() bool {
@@ -149,6 +152,12 @@ func nsinitMain(cfg NsinitConfig) error {
 		"HOME=/home/sandbox",
 		"TERM=xterm",
 		"LANG=C.UTF-8",
+	}
+	if cfg.ShellPrefer != "" {
+		env = append(env, "SANDKASTEN_SHELL_PREFER="+cfg.ShellPrefer)
+	}
+	if cfg.ExecMode != "" {
+		env = append(env, "SANDKASTEN_EXEC_MODE="+cfg.ExecMode)
 	}
 
 	return unix.Exec(cfg.RunnerPath, argv, env)

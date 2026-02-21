@@ -45,6 +45,23 @@ func runServer() {
 	serveRequests(srv, listener)
 }
 
+// runStatelessServer runs without a persistent shell. Each exec runs directly via exec.Command.
+// Saves ~1-2MB (no bash) and ~100-200ms startup. No cwd/env persistence between execs.
+func runStatelessServer() {
+	srv := &server{
+		ptmx:     nil,
+		shellBuf: nil,
+	}
+
+	listener := setupSocket()
+	defer listener.Close()
+
+	signalReady()
+	handleShutdown(listener, nil)
+
+	serveRequests(srv, listener)
+}
+
 // configureShellForAPI applies shell settings for clean non-interactive exec output.
 func configureShellForAPI(srv *server) {
 	// Disable terminal input echo so PTY output doesn't include echoed commands.
@@ -57,13 +74,33 @@ func configureShellForAPI(srv *server) {
 	srv.shellBuf.ReadAndReset()
 }
 
+// Env vars for runner configuration (set by nsinit from daemon config)
+const (
+	envShellPrefer = "SANDKASTEN_SHELL_PREFER" // "sh" to prefer /bin/sh (lighter, e.g. busybox)
+	envExecMode    = "SANDKASTEN_EXEC_MODE"    // "stateless" for direct exec, no persistent shell
+)
+
 // findShell locates bash or sh on the system.
+// Respects SANDKASTEN_SHELL_PREFER=sh to prefer lighter /bin/sh when available.
 func findShell() string {
+	prefer := os.Getenv(envShellPrefer)
+	if prefer == "sh" {
+		if _, err := os.Stat("/bin/sh"); err == nil {
+			return "/bin/sh"
+		}
+		// Fall back to bash if sh not found
+	}
 	shell := "/bin/bash"
 	if _, err := os.Stat(shell); err != nil {
 		shell = "/bin/sh"
 	}
 	return shell
+}
+
+// isStatelessMode returns true when SANDKASTEN_EXEC_MODE=stateless.
+// Stateless: no persistent shell, direct exec per request. No cwd/env persistence.
+func isStatelessMode() bool {
+	return os.Getenv(envExecMode) == "stateless"
 }
 
 // startShell starts shell with PTY.
@@ -142,7 +179,9 @@ func handleShutdown(listener net.Listener, cmd *exec.Cmd) {
 	go func() {
 		<-sigCh
 		listener.Close()
-		cmd.Process.Signal(syscall.SIGTERM)
+		if cmd != nil && cmd.Process != nil {
+			cmd.Process.Signal(syscall.SIGTERM)
+		}
 		os.Exit(0)
 	}()
 }

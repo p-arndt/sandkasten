@@ -192,16 +192,18 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 	}
 
 	nsConfig := NsinitConfig{
-		SessionID:   opts.SessionID,
-		Mnt:         mnt,
-		CgroupPath:  cgPath,
-		RunnerPath:  "/usr/local/bin/runner",
-		UID:         runnerUID,
-		GID:         runnerGID,
-		NoNewPrivs:  true,
-		NetworkNone: d.cfg.Defaults.NetworkMode != "host",
-		Readonly:    d.cfg.Defaults.ReadonlyRootfs,
-		Seccomp:     d.cfg.Security.Seccomp,
+		SessionID:     opts.SessionID,
+		Mnt:           mnt,
+		CgroupPath:    cgPath,
+		RunnerPath:    "/usr/local/bin/runner",
+		UID:           runnerUID,
+		GID:           runnerGID,
+		NoNewPrivs:    true,
+		NetworkNone:   d.cfg.Defaults.NetworkMode != "host",
+		Readonly:      d.cfg.Defaults.ReadonlyRootfs,
+		Seccomp:       d.cfg.Security.Seccomp,
+		ShellPrefer:   d.cfg.Defaults.ShellPrefer,
+		ExecMode:      d.cfg.Defaults.ExecMode,
 	}
 
 	cmd, nsinitLog, err := LaunchNsinit(nsConfig)

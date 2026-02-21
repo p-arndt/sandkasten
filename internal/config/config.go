@@ -15,6 +15,10 @@ type Defaults struct {
 	MaxExecTimeoutMs int     `yaml:"max_exec_timeout_ms"`
 	NetworkMode      string  `yaml:"network_mode"`
 	ReadonlyRootfs   bool    `yaml:"readonly_rootfs"`
+	// ExecMode: "stateful" (default) = persistent shell with cwd/env; "stateless" = direct exec, no shell
+	ExecMode string `yaml:"exec_mode"`
+	// ShellPrefer: "bash" (default) or "sh" - prefer lighter sh when available (e.g. busybox)
+	ShellPrefer string `yaml:"shell_prefer"`
 }
 
 type PoolConfig struct {
@@ -138,6 +142,12 @@ func applyEnvOverrides(cfg *Config) {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Defaults.ReadonlyRootfs = b
 		}
+	}
+	if v := os.Getenv("SANDKASTEN_EXEC_MODE"); v != "" {
+		cfg.Defaults.ExecMode = v
+	}
+	if v := os.Getenv("SANDKASTEN_SHELL_PREFER"); v != "" {
+		cfg.Defaults.ShellPrefer = v
 	}
 	if v := os.Getenv("SANDKASTEN_PLAYGROUND_CONFIG_PATH"); v != "" {
 		cfg.PlaygroundConfigPath = v

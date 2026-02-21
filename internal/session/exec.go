@@ -129,7 +129,8 @@ func (m *Manager) prepareExecRequest(ctx context.Context, sessionID, execID, cmd
 
 	absScriptPath := "/workspace/" + scriptPath
 	quotedPath := shellSingleQuote(absScriptPath)
-	stagedCmd := fmt.Sprintf("bash %s; __sandkasten_rc=$?; rm -f %s; exit $__sandkasten_rc", quotedPath, quotedPath)
+	shell := m.stagedExecShell()
+	stagedCmd := fmt.Sprintf("%s %s; __sandkasten_rc=$?; rm -f %s; exit $__sandkasten_rc", shell, quotedPath, quotedPath)
 
 	return protocol.Request{
 		ID:        execID,
@@ -142,6 +143,15 @@ func (m *Manager) prepareExecRequest(ctx context.Context, sessionID, execID, cmd
 
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+// stagedExecShell returns the shell to use for staged exec scripts.
+// When ShellPrefer is "sh", use sh for minimal images (e.g. busybox).
+func (m *Manager) stagedExecShell() string {
+	if m.cfg.Defaults.ShellPrefer == "sh" {
+		return "sh"
+	}
+	return "bash"
 }
 
 // validateSession checks if a session exists and is valid for execution.
