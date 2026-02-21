@@ -46,8 +46,9 @@ func AllocateIP(sessionID string) (string, error) {
 		}
 		incIP(nextIP)
 
-		// Wrap around (simple check)
-		if nextIP[12] != 55 {
+		// Wrap around when we've left 10.55.0.0/16 subnet.
+		// For IPv4-mapped format, bytes [12:14] are the network octets (10.55).
+		if len(nextIP) >= 14 && (nextIP[12] != 10 || nextIP[13] != 55) {
 			nextIP = net.ParseIP("10.55.0.2")
 		}
 
