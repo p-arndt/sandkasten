@@ -21,4 +21,5 @@ type SessionService interface {
 	DeleteWorkspace(ctx context.Context, workspaceID string) error
 	ListWorkspaceFiles(ctx context.Context, workspaceID, path string) ([]session.WorkspaceFileEntry, error)
 	ReadWorkspaceFile(ctx context.Context, workspaceID, path string, maxBytes int) (contentBase64 string, truncated bool, err error)
+	WriteWorkspaceFile(ctx context.Context, workspaceID, path string, content []byte, isBase64 bool) error
 }

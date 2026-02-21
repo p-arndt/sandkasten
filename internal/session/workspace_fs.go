@@ -125,6 +125,48 @@ func (m *Manager) ReadWorkspaceFile(ctx context.Context, workspaceID, filePath s
 	return base64.StdEncoding.EncodeToString(content), truncated, nil
 }
 
+func (m *Manager) WriteWorkspaceFile(ctx context.Context, workspaceID, filePath string, content []byte, isBase64 bool) error {
+	shortID := m.normalizeWorkspaceID(workspaceID)
+	if shortID == "" {
+		return fmt.Errorf("invalid workspace id")
+	}
+
+	safePath := m.safeWorkspacePath(filePath)
+	if safePath == "" {
+		return fmt.Errorf("invalid file path")
+	}
+
+	workspacePath := filepath.Join(m.cfg.DataDir, "workspaces", shortID)
+	fullPath := filepath.Join(workspacePath, safePath)
+	fullPath = filepath.Clean(fullPath)
+	rel, relErr := filepath.Rel(workspacePath, fullPath)
+	if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("path escapes workspace")
+	}
+
+	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+
+	var data []byte
+	if isBase64 {
+		var decodeErr error
+		data, decodeErr = base64.StdEncoding.DecodeString(string(content))
+		if decodeErr != nil {
+			return fmt.Errorf("invalid base64 content: %w", decodeErr)
+		}
+	} else {
+		data = content
+	}
+
+	if err := os.WriteFile(fullPath, data, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+
+	return nil
+}
+
 func (m *Manager) normalizeWorkspaceID(workspaceID string) string {
 	short := strings.TrimPrefix(workspaceID, protocol.WorkspaceVolumePrefix)
 	if short != "" {

@@ -267,9 +267,12 @@ Quick reference:
 | `GET /v1/sessions/{id}` | Get session |
 | `POST /v1/sessions/{id}/exec` | Execute command |
 | `POST /v1/sessions/{id}/fs/write` | Write file |
+| `POST /v1/sessions/{id}/fs/upload` | Upload file(s) (multipart) |
 | `GET /v1/sessions/{id}/fs/read` | Read file |
 | `DELETE /v1/sessions/{id}` | Destroy session |
 | `GET /v1/workspaces` | List workspaces |
+| `POST /v1/workspaces/{id}/fs/write` | Write file to workspace |
+| `POST /v1/workspaces/{id}/fs/upload` | Upload file(s) to workspace (multipart) |
 
 ---
 

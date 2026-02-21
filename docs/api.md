@@ -203,6 +203,34 @@ Or with text:
 {"ok": true}
 ```
 
+### Upload File (multipart)
+
+```http
+POST /v1/sessions/{id}/fs/upload
+Content-Type: multipart/form-data
+```
+
+Upload one or more files via `multipart/form-data`. Ideal for binary files, drag-and-drop, or HTML file inputs.
+
+**Form fields:**
+- `file` or `files` (required) - One or more file parts
+- `path` (optional) - Target directory under `/workspace`, defaults to `/workspace`
+
+Files are saved as `{path}/{filename}`. Max 10 MB per request.
+
+**Example (curl):**
+```bash
+curl -X POST http://localhost:8080/v1/sessions/$SESSION_ID/fs/upload \
+  -H "Authorization: Bearer sk-..." \
+  -F "file=@./myfile.py" \
+  -F "path=/workspace"
+```
+
+**Response:**
+```json
+{"ok": true, "paths": ["/workspace/myfile.py"]}
+```
+
 ### Read File
 
 ```http
@@ -243,6 +271,60 @@ GET /v1/workspaces
     }
   ]
 }
+```
+
+### Write Workspace File
+
+```http
+POST /v1/workspaces/{id}/fs/write
+```
+
+Write a file directly to a workspace (no session required). Workspace is created if it does not exist.
+
+**Request:**
+```json
+{
+  "path": "code.py",
+  "text": "print('hello')"
+}
+```
+
+Or with base64:
+```json
+{
+  "path": "data.bin",
+  "content_base64": "aGVsbG8="
+}
+```
+
+**Response:**
+```json
+{"ok": true}
+```
+
+### Upload Workspace File (multipart)
+
+```http
+POST /v1/workspaces/{id}/fs/upload
+Content-Type: multipart/form-data
+```
+
+Upload one or more files directly to a workspace (no session required). Workspace is created if it does not exist.
+
+**Form fields:**
+- `file` or `files` (required) - One or more file parts
+- `path` (optional) - Target directory within workspace root, e.g. `subdir` for `subdir/filename`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8080/v1/workspaces/my-project/fs/upload \
+  -H "Authorization: Bearer sk-..." \
+  -F "file=@./data.csv"
+```
+
+**Response:**
+```json
+{"ok": true, "paths": ["data.csv"]}
 ```
 
 ### Delete Workspace

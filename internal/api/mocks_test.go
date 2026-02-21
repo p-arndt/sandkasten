@@ -97,3 +97,8 @@ func (m *MockSessionService) ReadWorkspaceFile(ctx context.Context, workspaceID,
 	args := m.Called(ctx, workspaceID, path, maxBytes)
 	return args.String(0), args.Bool(1), args.Error(2)
 }
+
+func (m *MockSessionService) WriteWorkspaceFile(ctx context.Context, workspaceID, path string, content []byte, isBase64 bool) error {
+	args := m.Called(ctx, workspaceID, path, content, isBase64)
+	return args.Error(0)
+}

@@ -67,12 +67,23 @@ curl -X DELETE http://localhost:8080/v1/workspaces/user123-project \
 
 ⚠️ **Warning:** This permanently deletes all files.
 
-### Browse Workspace Files
+### Browse and Write Workspace Files
 
 ```bash
 # List files
 curl http://localhost:8080/v1/workspaces/user123-project/fs \
   -H "Authorization: Bearer sk-..."
+
+# Write file (creates workspace if needed)
+curl -X POST http://localhost:8080/v1/workspaces/user123-project/fs/write \
+  -H "Authorization: Bearer sk-..." \
+  -H "Content-Type: application/json" \
+  -d '{"path":"code.py","text":"print(\"hello\")"}'
+
+# Upload file (multipart, for binary or large files)
+curl -X POST http://localhost:8080/v1/workspaces/user123-project/fs/upload \
+  -H "Authorization: Bearer sk-..." \
+  -F "file=@./data.csv"
 
 # Read file
 curl "http://localhost:8080/v1/workspaces/user123-project/fs/read?path=/code.py" \

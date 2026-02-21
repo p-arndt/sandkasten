@@ -40,12 +40,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/sessions/{id}/exec", s.handleExec)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/exec/stream", s.handleExecStream)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/fs/write", s.handleWrite)
+	s.mux.HandleFunc("POST /v1/sessions/{id}/fs/upload", s.handleUpload)
 	s.mux.HandleFunc("GET /v1/sessions/{id}/fs/read", s.handleRead)
 	s.mux.HandleFunc("DELETE /v1/sessions/{id}", s.handleDestroy)
 
 	// Workspace routes (with auth)
 	s.mux.HandleFunc("GET /v1/workspaces", s.handleListWorkspaces)
 	s.mux.HandleFunc("DELETE /v1/workspaces/{id}", s.handleDeleteWorkspace)
+	s.mux.HandleFunc("POST /v1/workspaces/{id}/fs/write", s.handleWriteWorkspaceFile)
+	s.mux.HandleFunc("POST /v1/workspaces/{id}/fs/upload", s.handleUploadWorkspaceFile)
 	s.mux.HandleFunc("GET /v1/workspaces/{id}/fs", s.handleListWorkspaceFiles)
 	s.mux.HandleFunc("GET /v1/workspaces/{id}/fs/read", s.handleReadWorkspaceFile)
 

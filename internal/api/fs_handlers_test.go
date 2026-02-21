@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -122,4 +124,73 @@ func TestHandleRead_InvalidMaxBytes(t *testing.T) {
 	s.handleRead(rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandleUpload_Success(t *testing.T) {
+	mockMgr := &MockSessionService{}
+	s := testAPIServer(mockMgr)
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("file", "test.txt")
+	require.NoError(t, err)
+	_, _ = part.Write([]byte("hello from upload"))
+	require.NoError(t, w.Close())
+
+	req := httptest.NewRequest("POST", "/v1/sessions/a1b2c3d4-e5f/fs/upload", &buf)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	mockMgr.On("Write", mock.Anything, "a1b2c3d4-e5f", "/workspace/test.txt", []byte("hello from upload"), false).Return(nil)
+
+	s.handleUpload(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var result map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&result))
+	assert.True(t, result["ok"].(bool))
+	assert.Equal(t, []any{"/workspace/test.txt"}, result["paths"])
+}
+
+func TestHandleUpload_NoFile(t *testing.T) {
+	mockMgr := &MockSessionService{}
+	s := testAPIServer(mockMgr)
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, _ := w.CreateFormField("path")
+	_, _ = fw.Write([]byte("/workspace"))
+	require.NoError(t, w.Close())
+
+	req := httptest.NewRequest("POST", "/v1/sessions/a1b2c3d4-e5f/fs/upload", &buf)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	s.handleUpload(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestValidateWorkspaceFilePath(t *testing.T) {
+	for _, tt := range []struct {
+		path   string
+		expErr bool
+	}{
+		{"/workspace/foo.txt", false},
+		{"/workspace/sub/bar.py", false},
+		{"/workspace", false},
+		{"foo.txt", false},
+		{"../etc/passwd", true},
+		{"/etc/passwd", true},
+		{"", true},
+	} {
+		err := ValidateWorkspaceFilePath(tt.path)
+		if tt.expErr {
+			assert.Error(t, err, "path=%q", tt.path)
+		} else {
+			assert.NoError(t, err, "path=%q", tt.path)
+		}
+	}
 }

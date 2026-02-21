@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -149,6 +150,39 @@ func validateWriteRequest(req writeRequest) error {
 		return fmt.Errorf("either 'text' or 'content_base64' must be provided")
 	}
 
+	return nil
+}
+
+// validateWriteWorkspaceRequest validates workspace file write parameters.
+func validateWriteWorkspaceRequest(req writeWorkspaceRequest) error {
+	if req.Path == "" {
+		return fmt.Errorf("path is required")
+	}
+	if req.Text != "" && req.ContentBase64 != "" {
+		return fmt.Errorf("provide either 'text' or 'content_base64', not both")
+	}
+	if req.Text == "" && req.ContentBase64 == "" {
+		return fmt.Errorf("either 'text' or 'content_base64' must be provided")
+	}
+	return nil
+}
+
+// MaxUploadBytes is the maximum size for multipart file uploads (10 MB).
+const MaxUploadBytes = 10 * 1024 * 1024
+
+// ValidateWorkspaceFilePath ensures the path is within /workspace and safe (no path traversal).
+func ValidateWorkspaceFilePath(path string) error {
+	if path == "" {
+		return fmt.Errorf("path is required")
+	}
+	cleaned := path
+	if !filepath.IsAbs(cleaned) {
+		cleaned = filepath.Join("/workspace", cleaned)
+	}
+	cleaned = filepath.Clean(cleaned)
+	if !strings.HasPrefix(cleaned, "/workspace/") && cleaned != "/workspace" {
+		return fmt.Errorf("path must be under /workspace")
+	}
 	return nil
 }
 
