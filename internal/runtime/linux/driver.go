@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,10 +23,11 @@ import (
 )
 
 type Driver struct {
-	cfg      *config.Config
-	dataDir  string
-	imageDir string
-	logger   *slog.Logger
+	cfg             *config.Config
+	dataDir         string
+	imageDir        string
+	logger          *slog.Logger
+	ensureNetworkMu sync.Map // sessionID -> *sync.Mutex, for per-session lazy network setup
 }
 
 func NewDriver(cfg *config.Config, logger *slog.Logger) (*Driver, error) {
@@ -127,7 +129,9 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		d.cleanupSessionDir(sessionDir)
 		return nil, fmt.Errorf("setup filesystem: %w", err)
 	}
-	if d.cfg.Defaults.NetworkMode != "none" {
+	// For bridge mode: defer resolv.conf until first network setup (lazy network).
+	// For other network modes (host/none): set up resolv.conf at create time.
+	if d.cfg.Defaults.NetworkMode != "none" && d.cfg.Defaults.NetworkMode != "bridge" {
 		if err := EnsureResolvConf(mnt); err != nil {
 			CleanupMounts(mnt)
 			d.cleanupSessionDir(sessionDir)
@@ -220,15 +224,10 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 
 	initPid := cmd.Process.Pid
 
+	// Lazy network: defer veth/bridge setup until first Exec when network_mode is bridge.
+	// Saves ~50–150ms at session create time.
 	if d.cfg.Defaults.NetworkMode == "bridge" {
-		ip, err := AllocateIP(opts.SessionID)
-		if err == nil {
-			if err := SetupSessionNetwork(opts.SessionID, initPid, ip); err != nil {
-				d.logger.Error("failed to setup session network", "session_id", opts.SessionID, "error", err)
-			}
-		} else {
-			d.logger.Error("failed to allocate ip", "session_id", opts.SessionID, "error", err)
-		}
+		// Skip AllocateIP and SetupSessionNetwork here; done on first Exec
 	}
 
 	if err := AttachToCgroup(cgPath, initPid); err != nil {
@@ -294,8 +293,61 @@ func (d *Driver) Exec(ctx context.Context, sessionID string, req protocol.Reques
 	if err != nil {
 		return nil, fmt.Errorf("read state: %w", err)
 	}
+
+	// Lazy network: set up veth/bridge on first Exec when network_mode is bridge.
+	if err := d.ensureNetwork(sessionID, statePath, state); err != nil {
+		return nil, fmt.Errorf("ensure network: %w", err)
+	}
+
+	// Re-read state in case ensureNetwork updated it (NetworkReady)
+	state, _ = d.readState(statePath)
 	runnerSock := fmt.Sprintf("/proc/%d/root/run/sandkasten/runner.sock", state.InitPID)
 	return d.execViaSocket(runnerSock, req)
+}
+
+// ensureNetwork sets up session network (veth, bridge, resolv.conf) on first use when
+// network_mode is bridge. Idempotent; safe to call on every Exec.
+func (d *Driver) ensureNetwork(sessionID, statePath string, state *protocol.SessionState) error {
+	if d.cfg.Defaults.NetworkMode != "bridge" {
+		return nil
+	}
+	if state.NetworkReady {
+		return nil
+	}
+
+	muVal, _ := d.ensureNetworkMu.LoadOrStore(sessionID, &sync.Mutex{})
+	mu := muVal.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Re-check after acquiring lock; another goroutine may have set it up.
+	state, err := d.readState(statePath)
+	if err != nil {
+		return err
+	}
+	if state.NetworkReady {
+		return nil
+	}
+
+	ip, err := AllocateIP(sessionID)
+	if err != nil {
+		return fmt.Errorf("allocate ip: %w", err)
+	}
+	if err := SetupSessionNetwork(sessionID, state.InitPID, ip); err != nil {
+		ReleaseIP(sessionID)
+		return fmt.Errorf("setup session network: %w", err)
+	}
+	if err := EnsureResolvConf(state.Mnt); err != nil {
+		ReleaseIP(sessionID)
+		return fmt.Errorf("ensure resolv.conf: %w", err)
+	}
+
+	state.NetworkReady = true
+	if err := d.writeState(statePath, *state); err != nil {
+		d.logger.Warn("failed to persist network_ready in state", "session_id", sessionID, "error", err)
+		// Network is set up; state write failure is non-fatal
+	}
+	return nil
 }
 
 func (d *Driver) execViaSocket(sockPath string, req protocol.Request) (*protocol.Response, error) {
@@ -344,9 +396,8 @@ func (d *Driver) Destroy(ctx context.Context, sessionID string) error {
 	}
 
 	if d.cfg.Defaults.NetworkMode == "bridge" {
-		ip := GetIPForSession(sessionID)
-		if ip != "" {
-			ReleaseIP(ip)
+		if GetIPForSession(sessionID) != "" {
+			ReleaseIP(sessionID)
 		}
 	}
 
@@ -377,6 +428,7 @@ func (d *Driver) Destroy(ctx context.Context, sessionID string) error {
 		CleanupMounts(state.Mnt)
 	}
 
+	d.ensureNetworkMu.Delete(sessionID)
 	_ = os.RemoveAll(sessionDir)
 
 	return nil

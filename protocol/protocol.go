@@ -112,11 +112,12 @@ func WorkspacePath(workspaceID string) string {
 }
 
 type SessionState struct {
-	SessionID  string `json:"session_id"`
-	InitPID    int    `json:"init_pid"`
-	CgroupPath string `json:"cgroup_path"`
-	Mnt        string `json:"mnt"`
-	RunnerSock string `json:"runner_sock"`
+	SessionID    string `json:"session_id"`
+	InitPID      int    `json:"init_pid"`
+	CgroupPath   string `json:"cgroup_path"`
+	Mnt          string `json:"mnt"`
+	RunnerSock   string `json:"runner_sock"`
+	NetworkReady bool   `json:"network_ready"` // true after lazy network setup (bridge mode)
 }
 
 type SessionStats struct {
