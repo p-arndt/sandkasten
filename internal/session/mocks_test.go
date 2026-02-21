@@ -103,6 +103,25 @@ func (m *MockSessionStore) UpdateSessionWorkspace(id string, workspaceID string)
 	return args.Error(0)
 }
 
+type MockContainerPool struct {
+	mock.Mock
+}
+
+func (m *MockContainerPool) Get(ctx context.Context, image string, workspaceID string) (string, bool) {
+	args := m.Called(ctx, image, workspaceID)
+	return args.String(0), args.Bool(1)
+}
+
+func (m *MockContainerPool) Put(ctx context.Context, sessionID string) error {
+	args := m.Called(ctx, sessionID)
+	return args.Error(0)
+}
+
+func (m *MockContainerPool) Refill(ctx context.Context, image string, count int) error {
+	args := m.Called(ctx, image, count)
+	return args.Error(0)
+}
+
 type MockWorkspaceManager struct {
 	mock.Mock
 }

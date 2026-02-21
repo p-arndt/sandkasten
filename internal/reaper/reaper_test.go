@@ -112,3 +112,40 @@ func TestReconcile_SessionStillRunning(t *testing.T) {
 
 	st.AssertNotCalled(t, "UpdateSessionStatus")
 }
+
+func TestReconcileOrphans_SkipsPoolIdle(t *testing.T) {
+	st := &MockReaperStore{}
+	rt := &MockReaperRuntime{}
+	r := New(st, rt, time.Minute, testLogger())
+
+	// Session dir exists for pool_idle session - should NOT be destroyed
+	st.On("ListRunningSessions").Return([]*store.Session{}, nil)
+	rt.On("ListSessionDirIDs", mock.Anything).Return([]string{"pool-session-1"}, nil)
+	st.On("GetSession", "pool-session-1").Return(&store.Session{
+		ID: "pool-session-1", Status: store.StatusPoolIdle,
+	}, nil)
+
+	r.reconcile(context.Background())
+
+	rt.AssertNotCalled(t, "Destroy")
+}
+
+func TestReconcileOrphans_DestroysNonRunningNonPoolIdle(t *testing.T) {
+	st := &MockReaperStore{}
+	rt := &MockReaperRuntime{}
+	sm := &MockSessionManager{}
+	r := New(st, rt, time.Minute, testLogger())
+	r.SetSessionManager(sm)
+
+	st.On("ListRunningSessions").Return([]*store.Session{}, nil)
+	rt.On("ListSessionDirIDs", mock.Anything).Return([]string{"orphan-dir"}, nil)
+	st.On("GetSession", "orphan-dir").Return(&store.Session{
+		ID: "orphan-dir", Status: "destroyed",
+	}, nil)
+	rt.On("Destroy", mock.Anything, "orphan-dir").Return(nil)
+	sm.On("CleanupSessionLock", "orphan-dir").Return()
+
+	r.reconcile(context.Background())
+
+	rt.AssertCalled(t, "Destroy", mock.Anything, "orphan-dir")
+}

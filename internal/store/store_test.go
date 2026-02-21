@@ -96,6 +96,25 @@ func TestUpdateSessionStatusNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+func TestUpdateSessionWorkspace(t *testing.T) {
+	st := newTestStore(t)
+	require.NoError(t, st.CreateSession(testSession("s1")))
+
+	require.NoError(t, st.UpdateSessionWorkspace("s1", "my-workspace"))
+
+	got, err := st.GetSession("s1")
+	require.NoError(t, err)
+	assert.Equal(t, "my-workspace", got.WorkspaceID)
+}
+
+func TestUpdateSessionWorkspaceNotFound(t *testing.T) {
+	st := newTestStore(t)
+
+	err := st.UpdateSessionWorkspace("nonexistent", "ws")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
 func TestUpdateSessionActivity(t *testing.T) {
 	st := newTestStore(t)
 	require.NoError(t, st.CreateSession(testSession("s1")))
