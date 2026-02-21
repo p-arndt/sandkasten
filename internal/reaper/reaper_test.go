@@ -85,12 +85,15 @@ func TestReconcile_SessionNotRunning(t *testing.T) {
 		{ID: "orphan-session", InitPID: 999},
 	}, nil)
 	rt.On("IsRunning", mock.Anything, "orphan-session").Return(false, nil)
+	rt.On("Destroy", mock.Anything, "orphan-session").Return(nil)
 	st.On("UpdateSessionStatus", "orphan-session", "crashed").Return(nil)
 	sm.On("CleanupSessionLock", "orphan-session").Return()
+	rt.On("ListSessionDirIDs", mock.Anything).Return([]string{}, nil)
 
 	r.reconcile(context.Background())
 
 	st.AssertCalled(t, "UpdateSessionStatus", "orphan-session", "crashed")
+	rt.AssertCalled(t, "Destroy", mock.Anything, "orphan-session")
 	sm.AssertCalled(t, "CleanupSessionLock", "orphan-session")
 }
 
@@ -103,6 +106,7 @@ func TestReconcile_SessionStillRunning(t *testing.T) {
 		{ID: "running-session", InitPID: 123},
 	}, nil)
 	rt.On("IsRunning", mock.Anything, "running-session").Return(true, nil)
+	rt.On("ListSessionDirIDs", mock.Anything).Return([]string{}, nil)
 
 	r.reconcile(context.Background())
 

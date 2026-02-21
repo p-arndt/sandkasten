@@ -77,6 +77,7 @@ func TestDestroySuccess(t *testing.T) {
 	}
 
 	st.On("GetSession", "s1").Return(sess, nil)
+	st.On("UpdateSessionStatus", "s1", "destroying").Return(nil)
 	rt.On("Destroy", mock.Anything, "s1").Return(nil)
 	st.On("UpdateSessionStatus", "s1", "destroyed").Return(nil)
 
@@ -84,6 +85,7 @@ func TestDestroySuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	rt.AssertCalled(t, "Destroy", mock.Anything, "s1")
+	st.AssertCalled(t, "UpdateSessionStatus", "s1", "destroying")
 	st.AssertCalled(t, "UpdateSessionStatus", "s1", "destroyed")
 }
 
@@ -109,6 +111,7 @@ func TestDestroyRemovesLock(t *testing.T) {
 	assert.Len(t, mgr.locks, 1)
 
 	st.On("GetSession", "s1").Return(sess, nil)
+	st.On("UpdateSessionStatus", "s1", "destroying").Return(nil)
 	rt.On("Destroy", mock.Anything, "s1").Return(nil)
 	st.On("UpdateSessionStatus", "s1", "destroyed").Return(nil)
 

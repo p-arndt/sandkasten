@@ -27,6 +27,14 @@ func (m *MockReaperStore) ListRunningSessions() ([]*store.Session, error) {
 	return nil, args.Error(1)
 }
 
+func (m *MockReaperStore) GetSession(id string) (*store.Session, error) {
+	args := m.Called(id)
+	if sess := args.Get(0); sess != nil {
+		return sess.(*store.Session), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockReaperStore) UpdateSessionStatus(id string, status string) error {
 	args := m.Called(id, status)
 	return args.Error(0)
@@ -44,6 +52,14 @@ func (m *MockReaperRuntime) Destroy(ctx context.Context, sessionID string) error
 func (m *MockReaperRuntime) IsRunning(ctx context.Context, sessionID string) (bool, error) {
 	args := m.Called(ctx, sessionID)
 	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockReaperRuntime) ListSessionDirIDs(ctx context.Context) ([]string, error) {
+	args := m.Called(ctx)
+	if ids := args.Get(0); ids != nil {
+		return ids.([]string), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 type MockSessionManager struct {

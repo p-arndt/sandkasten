@@ -45,6 +45,19 @@ tasks:
     generates:
       - bin/imgbuilder{{exeExt}}
 
+  # Build sandkasten-wsl Windows helper (run daemon inside WSL2)
+  sandkasten-wsl:
+    desc: Build sandkasten-wsl.exe for Windows (helper to run daemon in WSL2)
+    cmds:
+      - go build -o bin/sandkasten-wsl.exe ./cmd/sandkasten-wsl
+    env:
+      GOOS: windows
+      GOARCH: amd64
+    sources:
+      - cmd/sandkasten-wsl/**/*.go
+    generates:
+      - bin/sandkasten-wsl.exe
+
   # Run the daemon (assumes already built)
   run:
     desc: Run the daemon locally (requires sudo on Linux)

@@ -121,6 +121,10 @@ sudo mkdir -p /var/lib/sandkasten/{images,sessions,workspaces}
 
 ## Step 7: Start the Daemon
 
+You can start the daemon either **inside WSL** (see below) or from **Windows** using the **sandkasten-wsl** helper.
+
+### Option A: From inside WSL
+
 ```bash
 # Run with sudo (required for namespaces)
 # Foreground (logs in terminal):
@@ -130,7 +134,36 @@ sudo ./bin/sandkasten --config sandkasten.yaml
 sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
 
-To list sessions: `./bin/sandkasten ps`
+### Option B: From Windows (sandkasten-wsl helper)
+
+The **sandkasten-wsl** executable lets you start, check, and stop the daemon from Windows PowerShell without opening a WSL shell. Build it (from any OS) with:
+
+```bash
+task sandkasten-wsl
+# or: GOOS=windows go build -o bin/sandkasten-wsl.exe ./cmd/sandkasten-wsl
+```
+
+Then on Windows, ensure the Linux binary and config exist inside WSL (e.g. you built and configured Sandkasten in WSL as in Steps 3–6). From PowerShell:
+
+```powershell
+# Start daemon in default WSL distro
+.\bin\sandkasten-wsl.exe start
+
+# Use a specific distro and config
+.\bin\sandkasten-wsl.exe start --distro Ubuntu-22.04 --config ~/sandkasten.yaml
+
+# Check if daemon is running
+.\bin\sandkasten-wsl.exe status
+
+# Stop daemon
+.\bin\sandkasten-wsl.exe stop
+```
+
+The helper runs `wsl -d <distro> -- sudo sandkasten daemon -d ...` for you. The `sandkasten` binary must be on the PATH inside that WSL distro, or pass `--binary /path/to/sandkasten`.
+
+---
+
+To list sessions from WSL: `./bin/sandkasten ps`
 
 You should see (when running in foreground):
 

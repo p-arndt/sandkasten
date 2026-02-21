@@ -32,6 +32,12 @@ func NewDriver(cfg *config.Config, logger *slog.Logger) (*Driver, error) {
 	if err := DetectCgroupV2(); err != nil {
 		return nil, fmt.Errorf("cgroup v2 check failed: %w", err)
 	}
+	if err := DetectOverlayFS(); err != nil {
+		return nil, fmt.Errorf("overlayfs check failed: %w", err)
+	}
+	if err := DetectMountPropagation(); err != nil {
+		return nil, fmt.Errorf("mount propagation check failed: %w", err)
+	}
 
 	d := &Driver{
 		cfg:      cfg,
@@ -383,6 +389,26 @@ func (d *Driver) IsRunning(ctx context.Context, sessionID string) (bool, error) 
 		return false, nil
 	}
 	return d.isProcessRunning(state.InitPID)
+}
+
+// ListSessionDirIDs returns session IDs that have a session directory on disk
+// (used by reaper for orphan cleanup).
+func (d *Driver) ListSessionDirIDs(ctx context.Context) ([]string, error) {
+	sessionsDir := filepath.Join(d.dataDir, "sessions")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read sessions dir: %w", err)
+	}
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() {
+			ids = append(ids, e.Name())
+		}
+	}
+	return ids, nil
 }
 
 func (d *Driver) Stats(ctx context.Context, sessionID string) (*protocol.SessionStats, error) {

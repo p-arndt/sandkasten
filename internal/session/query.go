@@ -69,8 +69,9 @@ func (m *Manager) Destroy(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
+	_ = m.store.UpdateSessionStatus(sessionID, "destroying")
 	_ = m.runtime.Destroy(ctx, sessionID)
-	m.store.UpdateSessionStatus(sessionID, "destroyed")
+	_ = m.store.UpdateSessionStatus(sessionID, "destroyed")
 	m.removeSessionLock(sessionID)
 
 	return nil
