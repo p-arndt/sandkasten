@@ -95,7 +95,6 @@ sudo ./bin/sandkasten stop
 ```bash
 curl http://localhost:8080/healthz
 ./bin/sandkasten ps
-# Dashboard: http://localhost:8080
 ```
 
 Once you see a healthy response and `ps` works, you can create sessions and run the example agent.

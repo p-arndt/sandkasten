@@ -37,7 +37,6 @@ async with SandboxClient(base_url="...", api_key="...") as client:
 - ✅ **Multiple Runtimes** - Python, Node.js, or custom images
 - ✅ **Persistent Workspaces** - Directories that survive session destruction
 - ✅ **Session Pool** - Pre-warmed sessions for sub-100ms create latency (optional)
-- ✅ **Web Dashboard** - Monitor sessions, edit config
 - ✅ **Python + TypeScript SDKs** - Clean async APIs
 - ✅ **Agent-Ready** - Works with OpenAI Agents SDK, LangChain, etc.
 - ✅ **WSL2 Support** - Run on Windows via WSL2
@@ -138,7 +137,6 @@ When running in foreground, stop with **Ctrl+C**.
 
 ```bash
 curl http://localhost:8080/healthz
-# Open dashboard: http://localhost:8080
 ```
 
 ### 7. Run the example agent
@@ -162,7 +160,7 @@ docker compose up -d
 ```
 
 > [!TIP]
-> The stack uses the repo’s `Dockerfile` and `docker-compose.yml` (mounts `./sandkasten.yaml` and `/var/lib/sandkasten`). The container runs privileged so the daemon can create sandboxes. API and dashboard on port 8080. Ensure an image exists for `default_image` (e.g. pull `python` before starting or via the daemon inside the container).
+> The stack uses the repo’s `Dockerfile` and `docker-compose.yml` (mounts `./sandkasten.yaml` and `/var/lib/sandkasten`). The container runs privileged so the daemon can create sandboxes. API on port 8080. Ensure an image exists for `default_image` (e.g. pull `python` before starting or via the daemon inside the container).
 
 ## Documentation
 

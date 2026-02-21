@@ -171,7 +171,6 @@ You should see (when running in foreground):
 INFO listening addr=127.0.0.1:8080
 
   sandkasten daemon ready
-  Dashboard: http://127.0.0.1:8080
   API:       http://127.0.0.1:8080/v1
 ```
 

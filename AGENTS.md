@@ -116,6 +116,5 @@ HTTP Request → API Handler → Session Manager → Runtime Driver
 - `internal/pool/` - Pre-warmed session pool (optional, when `pool.enabled`)
 - `internal/reaper/` - TTL cleanup + reconciliation (skips `pool_idle` sessions)
 - `internal/config/` - YAML + env var config
-- `internal/web/` - Web dashboard handlers
 - `protocol/` - Shared request/response types
 
