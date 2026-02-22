@@ -13,7 +13,7 @@ import (
 
 func testPoolStore(t *testing.T) *storemod.Store {
 	t.Helper()
-	st, err := storemod.New(":memory:")
+	st, err := storemod.New(":memory:", 0)
 	require.NoError(t, err)
 	t.Cleanup(func() { st.Close() })
 	return st

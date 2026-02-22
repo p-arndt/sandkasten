@@ -10,7 +10,7 @@ import (
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	st, err := New(":memory:")
+	st, err := New(":memory:", 0)
 	require.NoError(t, err)
 	t.Cleanup(func() { st.Close() })
 	return st

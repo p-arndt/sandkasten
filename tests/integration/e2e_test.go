@@ -50,7 +50,7 @@ func startTestServer(t *testing.T) (string, func()) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-	st, err := store.New(cfg.DBPath)
+	st, err := store.New(cfg.DBPath, 0)
 	require.NoError(t, err)
 
 	rt, err := linuxrt.NewDriver(cfg, logger)

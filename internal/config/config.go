@@ -42,6 +42,7 @@ type Config struct {
 	DefaultImage         string          `yaml:"default_image"`
 	AllowedImages        []string        `yaml:"allowed_images"`
 	DBPath               string          `yaml:"db_path"`
+	DBMaxOpenConns       int             `yaml:"db_max_open_conns"` // 0 = default 4
 	SessionTTLSeconds    int             `yaml:"session_ttl_seconds"`
 	PlaygroundConfigPath string          `yaml:"playground_config_path"`
 	Defaults             Defaults        `yaml:"defaults"`
@@ -109,6 +110,11 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("SANDKASTEN_DB_PATH"); v != "" {
 		cfg.DBPath = v
+	}
+	if v := os.Getenv("SANDKASTEN_DB_MAX_OPEN_CONNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.DBMaxOpenConns = n
+		}
 	}
 	if v := os.Getenv("SANDKASTEN_SESSION_TTL_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

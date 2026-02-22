@@ -75,6 +75,7 @@ security:
 |--------|------|---------|-------------|
 | `data_dir` | string | `/var/lib/sandkasten` | Base directory for all data |
 | `db_path` | string | `<data_dir>/sandkasten.db` | SQLite database path |
+| `db_max_open_conns` | int | `4` | Connection pool size. WAL allows concurrent reads; 4–8 improves throughput under parallel load. SQLite remains single-writer; for very high scale, consider PostgreSQL. |
 
 > [!IMPORTANT]
 > **WSL2:** Store `data_dir` inside the Linux filesystem (e.g. `/var/lib/sandkasten`), not on NTFS (`/mnt/c/...`). NTFS does not support overlayfs properly.
@@ -177,6 +178,7 @@ All config options can be overridden with environment variables (prefix: `SANDKA
 | `SANDKASTEN_DEFAULT_IMAGE` | `default_image` |
 | `SANDKASTEN_ALLOWED_IMAGES` | `allowed_images` (comma-separated) |
 | `SANDKASTEN_DB_PATH` | `db_path` |
+| `SANDKASTEN_DB_MAX_OPEN_CONNS` | `db_max_open_conns` |
 | `SANDKASTEN_SESSION_TTL_SECONDS` | `session_ttl_seconds` |
 | `SANDKASTEN_CPU_LIMIT` | `defaults.cpu_limit` |
 | `SANDKASTEN_MEM_LIMIT_MB` | `defaults.mem_limit_mb` |

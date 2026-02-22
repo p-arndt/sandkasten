@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -13,6 +14,34 @@ import (
 var (
 	ErrNotFound = errors.New("not found")
 )
+
+// isBusyLock reports whether err indicates SQLite database lock (SQLITE_BUSY).
+// Handles wrapped errors from database/sql.
+func isBusyLock(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "database is locked") || strings.Contains(s, "SQLITE_BUSY")
+}
+
+// retryOnBusy runs fn and retries on SQLITE_BUSY with exponential backoff.
+func retryOnBusy(fn func() error) error {
+	const maxAttempts = 4
+	backoff := 25 * time.Millisecond
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		lastErr = fn()
+		if lastErr == nil || !isBusyLock(lastErr) {
+			return lastErr
+		}
+		if attempt < maxAttempts-1 {
+			time.Sleep(backoff)
+			backoff *= 2
+		}
+	}
+	return lastErr
+}
 
 // StatusPoolIdle indicates a session is idle in the pre-warmed pool.
 // Reaper must not reap these sessions.
@@ -58,21 +87,41 @@ ALTER TABLE sessions ADD COLUMN init_pid INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sessions ADD COLUMN cgroup_path TEXT NOT NULL DEFAULT '';
 `
 
-func New(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath)
+// DefaultMaxOpenConns is the default connection pool size for concurrent reads.
+// WAL mode allows multiple readers + 1 writer; more conns improve read throughput.
+const DefaultMaxOpenConns = 4
+
+// dsnWithPragmas returns a connection string with WAL, busy_timeout, and perf
+// pragmas applied to every new connection. Critical for parallel session creation:
+// PRAGMAs in DSN are applied per-connection by the driver.
+func dsnWithPragmas(dbPath string) string {
+	// busy_timeout: 15s wait on lock (pool refill + API + reaper overlap)
+	// journal_mode=WAL: concurrent reads during writes
+	// synchronous=NORMAL: safe in WAL, ~50x faster writes than FULL
+	// cache_size=-64000: 64MB page cache
+	// temp_store=MEMORY: temp tables in RAM
+	return dbPath + "?_pragma=busy_timeout(15000)" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=cache_size(-64000)" +
+		"&_pragma=temp_store(MEMORY)"
+}
+
+// New opens the store. maxOpenConns controls the connection pool size (0 = default 4).
+// For high scale: 4–8 allows concurrent reads while writers serialize; SQLite remains
+// single-writer. For very high write throughput, consider PostgreSQL.
+func New(dbPath string, maxOpenConns int) (*Store, error) {
+	dsn := dsnWithPragmas(dbPath)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("setting journal mode: %w", err)
+	if maxOpenConns <= 0 {
+		maxOpenConns = DefaultMaxOpenConns
 	}
-	// Wait up to 5s on lock contention (pool refill + API writes can overlap)
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("setting busy timeout: %w", err)
-	}
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxOpenConns)
 
 	if _, err := db.Exec(createTableSQL); err != nil {
 		db.Close()
@@ -90,12 +139,15 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) CreateSession(sess *Session) error {
-	_, err := s.db.Exec(
-		`INSERT INTO sessions (id, image, init_pid, cgroup_path, status, cwd, workspace_id, created_at, expires_at, last_activity)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		sess.ID, sess.Image, sess.InitPID, sess.CgroupPath, sess.Status, sess.Cwd, sess.WorkspaceID,
-		sess.CreatedAt.UTC(), sess.ExpiresAt.UTC(), sess.LastActivity.UTC(),
-	)
+	err := retryOnBusy(func() error {
+		_, e := s.db.Exec(
+			`INSERT INTO sessions (id, image, init_pid, cgroup_path, status, cwd, workspace_id, created_at, expires_at, last_activity)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			sess.ID, sess.Image, sess.InitPID, sess.CgroupPath, sess.Status, sess.Cwd, sess.WorkspaceID,
+			sess.CreatedAt.UTC(), sess.ExpiresAt.UTC(), sess.LastActivity.UTC(),
+		)
+		return e
+	})
 	if err != nil {
 		return fmt.Errorf("inserting session: %w", err)
 	}
@@ -123,10 +175,15 @@ func (s *Store) ListSessions() ([]*Session, error) {
 }
 
 func (s *Store) UpdateSessionActivity(id string, cwd string, expiresAt time.Time) error {
-	result, err := s.db.Exec(
-		`UPDATE sessions SET cwd = ?, last_activity = ?, expires_at = ? WHERE id = ?`,
-		cwd, time.Now().UTC(), expiresAt.UTC(), id,
-	)
+	var result sql.Result
+	err := retryOnBusy(func() error {
+		var e error
+		result, e = s.db.Exec(
+			`UPDATE sessions SET cwd = ?, last_activity = ?, expires_at = ? WHERE id = ?`,
+			cwd, time.Now().UTC(), expiresAt.UTC(), id,
+		)
+		return e
+	})
 	if err != nil {
 		return fmt.Errorf("updating session activity: %w", err)
 	}
@@ -134,9 +191,14 @@ func (s *Store) UpdateSessionActivity(id string, cwd string, expiresAt time.Time
 }
 
 func (s *Store) UpdateSessionStatus(id string, status string) error {
-	result, err := s.db.Exec(
-		`UPDATE sessions SET status = ? WHERE id = ?`, status, id,
-	)
+	var result sql.Result
+	err := retryOnBusy(func() error {
+		var e error
+		result, e = s.db.Exec(
+			`UPDATE sessions SET status = ? WHERE id = ?`, status, id,
+		)
+		return e
+	})
 	if err != nil {
 		return fmt.Errorf("updating session status: %w", err)
 	}
@@ -144,9 +206,14 @@ func (s *Store) UpdateSessionStatus(id string, status string) error {
 }
 
 func (s *Store) UpdateSessionWorkspace(id string, workspaceID string) error {
-	result, err := s.db.Exec(
-		`UPDATE sessions SET workspace_id = ? WHERE id = ?`, workspaceID, id,
-	)
+	var result sql.Result
+	err := retryOnBusy(func() error {
+		var e error
+		result, e = s.db.Exec(
+			`UPDATE sessions SET workspace_id = ? WHERE id = ?`, workspaceID, id,
+		)
+		return e
+	})
 	if err != nil {
 		return fmt.Errorf("updating session workspace: %w", err)
 	}
@@ -179,7 +246,12 @@ func (s *Store) ListRunningSessions() ([]*Session, error) {
 }
 
 func (s *Store) DeleteSession(id string) error {
-	result, err := s.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+	var result sql.Result
+	err := retryOnBusy(func() error {
+		var e error
+		result, e = s.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+		return e
+	})
 	if err != nil {
 		return fmt.Errorf("deleting session: %w", err)
 	}

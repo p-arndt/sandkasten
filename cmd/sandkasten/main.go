@@ -145,7 +145,7 @@ func runDaemon(args []string) int {
 		logger.Warn("no API key configured — running in open access mode (dev only; do not use in production)")
 	}
 
-	st, err := store.New(cfg.DBPath)
+	st, err := store.New(cfg.DBPath, cfg.DBMaxOpenConns)
 	if err != nil {
 		logger.Error("open store", "error", err)
 		return 1

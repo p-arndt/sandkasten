@@ -55,7 +55,7 @@ func TestSession(id string) *store.Session {
 // NewTestStore creates an in-memory SQLite store for testing.
 func NewTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := store.New(":memory:")
+	st, err := store.New(":memory:", 0)
 	if err != nil {
 		t.Fatalf("failed to create test store: %v", err)
 	}
