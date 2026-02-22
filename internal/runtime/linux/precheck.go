@@ -1,5 +1,7 @@
 //go:build linux
 
+// Preflight checks run at driver init. DetectOverlayFS and DetectMountPropagation ensure
+// the host supports overlayfs and private mount propagation (required for pivot_root).
 package linux
 
 import (

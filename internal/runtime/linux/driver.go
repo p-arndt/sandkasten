@@ -1,5 +1,21 @@
 //go:build linux
 
+// Package linux implements the runtime.Driver interface using native Linux sandboxing:
+//
+//   - Overlayfs for copy-on-write rootfs (lower=image, upper=session-specific)
+//   - cgroups v2 for CPU, memory, and PIDs limits
+//   - Namespaces: mount, pid, uts, ipc, net (optional), user
+//   - nsinit: re-execs the daemon binary with CLONE_NEW* to enter namespaces, then pivot_root
+//   - Runner: PID 1 inside the sandbox, manages PTY + bash, speaks JSON over Unix socket
+//
+// Session layout on disk:
+//
+//	/var/lib/sandkasten/sessions/<id>/
+//	  upper/       overlay upper layer (session writes)
+//	  work/        overlay work dir
+//	  mnt/         overlay mount point (merged rootfs)
+//	  run/         bind-mounted into sandbox as /run/sandkasten (runner.sock lives here)
+//	  state.json   InitPID, CgroupPath, Mnt, etc.
 package linux
 
 import (
@@ -22,6 +38,8 @@ import (
 	"github.com/p-arndt/sandkasten/protocol"
 )
 
+// Driver is the Linux implementation of runtime.Driver.
+// It manages session directories, overlayfs, cgroups, and communicates with the runner via Unix socket.
 type Driver struct {
 	cfg             *config.Config
 	dataDir         string
@@ -30,6 +48,9 @@ type Driver struct {
 	ensureNetworkMu sync.Map // sessionID -> *sync.Mutex, for per-session lazy network setup
 }
 
+// NewDriver creates and initializes the Linux runtime driver. It runs preflight checks
+// (cgroup v2, overlayfs, mount propagation) and creates required directories.
+// If network_mode is "bridge", it also sets up the sk0 bridge (if missing).
 func NewDriver(cfg *config.Config, logger *slog.Logger) (*Driver, error) {
 	if err := DetectCgroupV2(); err != nil {
 		return nil, fmt.Errorf("cgroup v2 check failed: %w", err)
@@ -78,6 +99,17 @@ func (d *Driver) Ping(ctx context.Context) error {
 	return DetectCgroupV2()
 }
 
+// Create builds a new sandbox session. Steps:
+//
+// 1. Resolve image lower layer(s): either from meta.json (layered) or image/rootfs (single)
+// 2. SetupFilesystem: overlay mount (lower+upper+work -> mnt), workspace bind, /run/sandkasten, /tmp tmpfs, minimal /dev
+// 3. Prepare /home/sandbox tmpfs and optional resolv.conf (deferred for bridge mode)
+// 4. Create cgroup and write limits (cpu.max, memory.max, pids.max)
+// 5. LaunchNsinit: re-exec daemon with CLONE_NEWNS|NEWPID|NEWUTS|NEWIPC|NEWUSER|NEWNET
+// 6. Attach init PID to cgroup
+// 7. Wait for runner socket, then write state.json
+//
+// For bridge network mode, veth/bridge setup is deferred until first Exec (lazy network).
 func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.SessionInfo, error) {
 	if d.logger != nil {
 		d.logger.Debug("runtime create session", "session_id", opts.SessionID, "image", opts.Image, "workspace_id", opts.WorkspaceID)
@@ -85,6 +117,7 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 	runnerUID := 1000
 	runnerGID := 1000
 
+	// Resolve lower dirs: layered images have meta.json with "layers" list (runner + base layers)
 	var lower string
 	metaPath := filepath.Join(d.imageDir, opts.Image, "meta.json")
 	if metaData, err := os.ReadFile(metaPath); err == nil {
@@ -102,6 +135,7 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 	}
 
 	if lower == "" {
+		// Single-layer image: use image/rootfs as lower
 		lower = filepath.Join(d.imageDir, opts.Image, "rootfs")
 		if _, err := os.Stat(lower); os.IsNotExist(err) {
 			return nil, fmt.Errorf("image %s not found at %s", opts.Image, lower)
@@ -309,6 +343,7 @@ func (d *Driver) Exec(ctx context.Context, sessionID string, req protocol.Reques
 
 // ensureNetwork sets up session network (veth, bridge, resolv.conf) on first use when
 // network_mode is bridge. Idempotent; safe to call on every Exec.
+// Uses a per-session mutex to avoid duplicate setup when multiple Execs race.
 func (d *Driver) ensureNetwork(sessionID, statePath string, state *protocol.SessionState) error {
 	if d.cfg.Defaults.NetworkMode != "bridge" {
 		return nil
@@ -352,8 +387,10 @@ func (d *Driver) ensureNetwork(sessionID, statePath string, state *protocol.Sess
 	return nil
 }
 
+// execViaSocket connects to the runner's Unix socket, sends the JSON request, and reads
+// the JSON response. The socket path is typically /proc/<initPID>/root/run/sandkasten/runner.sock.
 func (d *Driver) execViaSocket(sockPath string, req protocol.Request) (*protocol.Response, error) {
-	// Prevent symlink hijack (Confused Deputy)
+	// Prevent symlink hijack (Confused Deputy): if sockPath were a symlink, we might talk to a malicious socket.
 	if info, err := os.Lstat(sockPath); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return nil, fmt.Errorf("socket %s is a symlink, possible hijack attempt", sockPath)
@@ -392,6 +429,8 @@ func (d *Driver) execViaSocket(sockPath string, req protocol.Request) (*protocol
 	return &resp, nil
 }
 
+// Destroy tears down a session: release IP (bridge), kill init process, remove cgroup,
+// unmount rootfs, delete session directory.
 func (d *Driver) Destroy(ctx context.Context, sessionID string) error {
 	if d.logger != nil {
 		d.logger.Debug("runtime destroy session", "session_id", sessionID)
@@ -436,6 +475,7 @@ func (d *Driver) Destroy(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// IsRunning checks if the session's init PID is still alive via kill -0 semantics.
 func (d *Driver) IsRunning(ctx context.Context, sessionID string) (bool, error) {
 	statePath := filepath.Join(d.dataDir, "sessions", sessionID, "state.json")
 	state, err := d.readState(statePath)
@@ -498,6 +538,7 @@ func (d *Driver) ListSessionDirIDs(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
+// Stats reads memory and CPU usage from the session's cgroup (memory.current, memory.max, cpu.stat).
 func (d *Driver) Stats(ctx context.Context, sessionID string) (*protocol.SessionStats, error) {
 	statePath := filepath.Join(d.dataDir, "sessions", sessionID, "state.json")
 	state, err := d.readState(statePath)

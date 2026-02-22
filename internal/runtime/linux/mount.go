@@ -1,5 +1,7 @@
 //go:build linux
 
+// Mount helpers for the sandbox rootfs: overlayfs, bind mounts, tmpfs, minimal /dev,
+// resolv.conf, and filesystem setup. CleanupMounts unmounts the root recursively.
 package linux
 
 import (
@@ -20,6 +22,8 @@ func MkdirAll(dir string) error {
 	return nil
 }
 
+// MountOverlay mounts overlayfs: lower (read-only image), upper (writable), work (internal),
+// merged at mnt. Multiple lower dirs are colon-separated (e.g. "layer1:layer2:layer3").
 func MountOverlay(lower, upper, work, mnt string) error {
 	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lower, upper, work)
 	if err := unix.Mount("overlay", mnt, "overlay", 0, opts); err != nil {
@@ -28,6 +32,7 @@ func MountOverlay(lower, upper, work, mnt string) error {
 	return nil
 }
 
+// BindMount makes dst a mirror of src. recursive=true uses MS_REC for directory trees.
 func BindMount(src, dst string, recursive bool) error {
 	flags := unix.MS_BIND
 	if recursive {
@@ -39,6 +44,7 @@ func BindMount(src, dst string, recursive bool) error {
 	return nil
 }
 
+// MountTmpfs mounts a tmpfs at target with the given size in bytes.
 func MountTmpfs(target string, sizeBytes int64) error {
 	opts := fmt.Sprintf("size=%d", sizeBytes)
 	if err := unix.Mount("tmpfs", target, "tmpfs", 0, opts); err != nil {
@@ -47,6 +53,7 @@ func MountTmpfs(target string, sizeBytes int64) error {
 	return nil
 }
 
+// MountProc mounts /proc at target (used inside sandbox after pivot_root).
 func MountProc(target string) error {
 	if err := unix.Mount("proc", target, "proc", 0, ""); err != nil {
 		return fmt.Errorf("mount proc %s: %w", target, err)
@@ -54,6 +61,7 @@ func MountProc(target string) error {
 	return nil
 }
 
+// RemountReadOnly remounts target with MS_RDONLY (for readonly_rootfs).
 func RemountReadOnly(target string) error {
 	if err := unix.Mount("", target, "", unix.MS_REMOUNT|unix.MS_RDONLY, ""); err != nil {
 		return fmt.Errorf("remount readonly %s: %w", target, err)
@@ -61,6 +69,7 @@ func RemountReadOnly(target string) error {
 	return nil
 }
 
+// MakePrivate sets mount propagation to MS_PRIVATE recursively so mounts don't leak to host.
 func MakePrivate(mountPoint string) error {
 	if err := unix.Mount("", mountPoint, "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return fmt.Errorf("make private %s: %w", mountPoint, err)
@@ -68,6 +77,8 @@ func MakePrivate(mountPoint string) error {
 	return nil
 }
 
+// PivotRoot switches the root filesystem to newRoot; the old root is moved to putOld.
+// Caller must chdir to newRoot first. After pivot, umount putOld and remove it.
 func PivotRoot(newRoot, putOld string) error {
 	if err := unix.Chdir(newRoot); err != nil {
 		return fmt.Errorf("chdir %s: %w", newRoot, err)
@@ -78,6 +89,7 @@ func PivotRoot(newRoot, putOld string) error {
 	return nil
 }
 
+// UmountDetach unmounts with MNT_DETACH so the mount tree is lazily freed.
 func UmountDetach(target string) error {
 	if err := unix.Unmount(target, unix.MNT_DETACH); err != nil {
 		return fmt.Errorf("umount %s: %w", target, err)
@@ -85,6 +97,8 @@ func UmountDetach(target string) error {
 	return nil
 }
 
+// SetupMinimalDev creates /dev with tmpfs and essential devices: null, zero, random, urandom,
+// tty, and symlinks for ptmx, fd, stdin/stdout/stderr.
 func SetupMinimalDev(mnt string) error {
 	devDir := filepath.Join(mnt, "dev")
 	if err := MkdirAll(devDir); err != nil {
@@ -138,6 +152,8 @@ func SetupMinimalDev(mnt string) error {
 	return nil
 }
 
+// BindHostFile bind-mounts a host file into the rootfs. Resolves symlinks (e.g. resolv.conf)
+// so the container gets the real file, not a broken symlink.
 func BindHostFile(mnt, hostPath, relPath string) error {
 	if _, err := os.Stat(hostPath); err != nil {
 		if os.IsNotExist(err) {
@@ -184,6 +200,8 @@ func BindHostFile(mnt, hostPath, relPath string) error {
 	return nil
 }
 
+// CopyHostFile copies host file content into the rootfs. Used when bind-mount would create
+// a dependency on host paths that may not exist inside the sandbox.
 func CopyHostFile(mnt, hostPath, relPath string) error {
 	if _, err := os.Stat(hostPath); err != nil {
 		if os.IsNotExist(err) {
@@ -224,10 +242,9 @@ func CopyHostFile(mnt, hostPath, relPath string) error {
 	return nil
 }
 
-// EnsureResolvConf ensures mnt/etc/resolv.conf exists and contains at least one nameserver
-// when network is enabled. If the file is missing (host had no resolv.conf), writes a
-// fallback. If it exists (e.g. bind-mounted from host), only ensures we have a nameserver
-// line; does not overwrite bind-mounted host files.
+// EnsureResolvConf ensures mnt/etc/resolv.conf exists and contains at least one non-loopback nameserver.
+// If missing, writes fallback (1.1.1.1, 8.8.8.8). If host resolv has only loopback (127.0.0.x),
+// replaces with public resolvers since loopback is unreachable from sandbox net ns.
 func EnsureResolvConf(mnt string) error {
 	resolv := filepath.Join(mnt, "etc", "resolv.conf")
 	data, err := os.ReadFile(resolv)
@@ -276,6 +293,8 @@ func EnsureResolvConf(mnt string) error {
 	return nil
 }
 
+// SetupFilesystem builds the sandbox rootfs: overlay mount, resolv/hosts, workspace bind,
+// /run/sandkasten bind (runner socket dir), /tmp tmpfs, and minimal /dev.
 func SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runHostDir string) error {
 	if err := MkdirAll(upper); err != nil {
 		return err
@@ -334,6 +353,7 @@ func SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runHostDir string) e
 	return nil
 }
 
+// CleanupMounts unmounts the rootfs. Uses MNT_DETACH for lazy cleanup.
 func CleanupMounts(mnt string) {
 	_ = unix.Unmount(mnt, unix.MNT_DETACH)
 }

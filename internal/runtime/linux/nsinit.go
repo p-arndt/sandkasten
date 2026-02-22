@@ -1,5 +1,16 @@
 //go:build linux
 
+// nsinit: namespace initializer. The daemon re-execs itself with SANDKASTEN_NSINIT=1 and
+// config passed via SANDKASTEN_NSINIT_CONFIG. This child runs in new namespaces (CLONE_NEWNS,
+// NEWPID, NEWUTS, NEWIPC, NEWUSER, optionally NEWNET) and performs:
+//
+//  1. pivot_root: switch root to the sandbox's merged rootfs
+//  2. Mount /proc, devpts, minimal /dev
+//  3. PR_SET_NO_NEW_PRIVS, seccomp filter, drop capabilities
+//  4. setuid/setgid to unprivileged user
+//  5. exec runner (PID 1 inside sandbox)
+//
+// LaunchNsinit spawns this child; RunNsinit is the entry point when SANDKASTEN_NSINIT=1.
 package linux
 
 import (
@@ -23,6 +34,7 @@ const (
 	EnvConfig = "SANDKASTEN_NSINIT_CONFIG"
 )
 
+// NsinitConfig is serialized to JSON and passed via env to the nsinit child.
 type NsinitConfig struct {
 	SessionID     string `json:"session_id"`
 	Mnt           string `json:"mnt"`
@@ -40,10 +52,12 @@ type NsinitConfig struct {
 	ExecMode    string `json:"exec_mode,omitempty"`    // "stateless" for direct exec, no shell
 }
 
+// IsNsinit returns true when the current process is the nsinit child (SANDKASTEN_NSINIT=1).
 func IsNsinit() bool {
 	return os.Getenv(EnvNsinit) == "1"
 }
 
+// RunNsinit is the entry point for the nsinit child. Parses config from env and runs nsinitMain.
 func RunNsinit() error {
 	cfgJSON := os.Getenv(EnvConfig)
 	if cfgJSON == "" {
@@ -58,22 +72,26 @@ func RunNsinit() error {
 	return nsinitMain(cfg)
 }
 
+// nsinitMain performs the actual sandbox setup. Order matters: pivot_root first, then
+// proc/dev mounts, then security (no_new_privs, seccomp, capabilities), then uid/gid.
 func nsinitMain(cfg NsinitConfig) error {
+	// UTS: hostname visible inside sandbox
 	if err := unix.Sethostname([]byte("sk-" + cfg.SessionID[:8])); err != nil {
 		return fmt.Errorf("sethostname: %w", err)
 	}
 
+	// Make mount tree private so changes don't propagate to host
 	if err := MakePrivate("/"); err != nil {
 		return fmt.Errorf("make private: %w", err)
 	}
 
-	// pivot_root requires the new root to be a mount point
+	// pivot_root requires the new root to be a mount point; bind-mount it onto itself
 	if err := unix.Mount(cfg.Mnt, cfg.Mnt, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 		return fmt.Errorf("bind mount new root: %w", err)
 	}
-	// Needs to be private for pivot_root
 	unix.Mount("", cfg.Mnt, "", unix.MS_PRIVATE|unix.MS_REC, "")
 
+	// put_old: pivot_root moves old root here; we umount and remove it after
 	oldRoot := filepath.Join(cfg.Mnt, ".oldroot")
 	if info, err := os.Stat(oldRoot); err != nil {
 		return fmt.Errorf("stat .oldroot: %w", err)
@@ -92,6 +110,7 @@ func nsinitMain(cfg NsinitConfig) error {
 	_ = UmountDetach("/.oldroot")
 	_ = os.RemoveAll("/.oldroot")
 
+	// proc and devpts needed for tools (ps, /dev/null, PTY)
 	if err := MountProc("/proc"); err != nil {
 		return fmt.Errorf("mount proc: %w", err)
 	}
@@ -101,6 +120,7 @@ func nsinitMain(cfg NsinitConfig) error {
 		return fmt.Errorf("mount devpts: %w", err)
 	}
 
+	// Security hardening: block setuid privilege escalation
 	if cfg.NoNewPrivs {
 		if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 			return fmt.Errorf("prctl NO_NEW_PRIVS: %w", err)
@@ -127,6 +147,7 @@ func nsinitMain(cfg NsinitConfig) error {
 		}
 	}
 
+	// Bridge mode: nsinit runs with NEWNET; host sets up veth on first Exec. Wait for eth0.
 	if cfg.NetworkBridge {
 		for i := 0; i < 50; i++ {
 			if _, err := net.InterfaceByName("eth0"); err == nil {
@@ -136,7 +157,7 @@ func nsinitMain(cfg NsinitConfig) error {
 		}
 	}
 
-	// Wait for cgroup attachment from host daemon
+	// Host attaches us to cgroup after we start; brief wait so cgroup.procs is populated
 	for i := 0; i < 100; i++ {
 		if data, err := os.ReadFile("/proc/self/cgroup"); err == nil {
 			if strings.Contains(string(data), cfg.SessionID) {
@@ -163,6 +184,8 @@ func nsinitMain(cfg NsinitConfig) error {
 	return unix.Exec(cfg.RunnerPath, argv, env)
 }
 
+// dropCapabilities removes dangerous capabilities via PR_CAPBSET_DROP so they cannot
+// be regained. Keeps minimal set (e.g. CAP_NET_BIND_SERVICE for dev servers).
 func dropCapabilities() error {
 	caps := []uintptr{
 		unix.CAP_NET_RAW,
@@ -214,6 +237,8 @@ func ensureSandboxHome(uid, gid int) error {
 	return nil
 }
 
+// applySeccomp installs a BPF filter that denies dangerous syscalls (bpf, mount, ptrace, etc.).
+// "mvp" allows setns/unshare; "strict" denies them. "off" skips seccomp.
 func applySeccomp(profile string) error {
 	switch profile {
 	case "", "off":
@@ -227,6 +252,8 @@ func applySeccomp(profile string) error {
 	}
 }
 
+// installSeccompFilter builds and installs the BPF filter. deny list includes SYS_BPF,
+// SYS_MOUNT, SYS_PTRACE, etc. strict=true adds SYS_SETNS and SYS_UNSHARE.
 func installSeccompFilter(strict bool) error {
 	deny := []uint32{
 		uint32(unix.SYS_BPF),
@@ -287,6 +314,9 @@ func installSeccompFilter(strict bool) error {
 	return nil
 }
 
+// LaunchNsinit spawns the nsinit child: same binary with SANDKASTEN_NSINIT=1 and config in env.
+// Cloneflags: NEWNS (mount), NEWPID (isolated PID tree), NEWUTS, NEWIPC, NEWUSER. If
+// NetworkNone, adds NEWNET. Returns the command (caller starts it) and a temp log file.
 func LaunchNsinit(cfg NsinitConfig) (*exec.Cmd, *os.File, error) {
 	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
@@ -354,6 +384,7 @@ func WaitProcess(cmd *exec.Cmd) error {
 	return err
 }
 
+// KillProcess sends SIGTERM for graceful shutdown.
 func KillProcess(pid int) error {
 	if err := unix.Kill(pid, unix.SIGTERM); err != nil {
 		if err == unix.ESRCH {
@@ -364,6 +395,7 @@ func KillProcess(pid int) error {
 	return nil
 }
 
+// KillProcessForce sends SIGKILL when SIGTERM did not terminate the process.
 func KillProcessForce(pid int) error {
 	if err := unix.Kill(pid, unix.SIGKILL); err != nil {
 		if err == unix.ESRCH {
