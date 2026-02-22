@@ -14,6 +14,14 @@ Or with uv:
 uv add sandkasten
 ```
 
+For OpenAI Agents SDK integration:
+
+```bash
+pip install sandkasten[agents]
+# or
+uv add sandkasten[agents]
+```
+
 ## Quick Start
 
 ```python
@@ -164,50 +172,80 @@ Destroy the session and clean up resources.
 
 ### OpenAI Agents SDK
 
+Install the agents extra: `pip install sandkasten[agents]`
+
+**Pattern 1: Context-based (recommended)**
+
 ```python
-from agents import Agent, Runner, function_tool
+from agents import Agent, Runner
 from sandkasten import SandboxClient
+from sandkasten import SandkastenContext, sandkasten_tools
 
 client = SandboxClient(base_url="...", api_key="...")
-session = None
+session = await client.create_session(image="python")
+context = SandkastenContext(session=session)
 
-@function_tool
-async def exec(cmd: str, timeout_ms: int = 30000) -> str:
-    """Execute a shell command in the sandbox."""
-    result = await session.exec(cmd, timeout_ms=timeout_ms)
-    return f"exit_code={result.exit_code}\ncwd={result.cwd}\n---\n{result.output}"
+agent = Agent[SandkastenContext](
+    name="coding-assistant",
+    instructions="You have a Linux sandbox. Use the tools to execute commands and manage files.",
+    tools=sandkasten_tools(),
+)
 
-@function_tool
-async def write_file(path: str, content: str) -> str:
-    """Write content to a file."""
-    await session.write(path, content)
-    return f"wrote {path}"
+result = await Runner.run(
+    agent,
+    "Write a Python script that prints fibonacci numbers",
+    context=context,
+)
+print(result.final_output)
 
-@function_tool
-async def read_file(path: str) -> str:
-    """Read a file."""
-    result = await session.read(path)
-    return result.content.decode()
+await session.destroy()
+await client.close()
+```
+
+**Pattern 2: Factory-based (simple)**
+
+```python
+from agents import Agent, Runner
+from sandkasten import SandboxClient, create_sandkasten_tools
+
+client = SandboxClient(base_url="...", api_key="...")
+session = await client.create_session(image="python")
+tools = create_sandkasten_tools(session)
 
 agent = Agent(
     name="coding-assistant",
-    instructions="You have a Linux sandbox with exec, write_file, read_file tools.",
-    tools=[exec, write_file, read_file],
+    instructions="You have a Linux sandbox. Use the tools to execute commands and manage files.",
+    tools=tools,
 )
 
-async def main():
-    global session
-    session = await client.create_session(image="python")
-    try:
-        result = await Runner.run(
-            agent,
-            "Write a Python script that prints fibonacci numbers"
-        )
-        print(result.final_output)
-    finally:
-        await session.destroy()
-        await client.close()
+result = await Runner.run(agent, "Write a Python script that prints fibonacci numbers")
+print(result.final_output)
+
+await session.destroy()
+await client.close()
 ```
+
+**Pattern 3: Per-user workspace (multi-tenant)**
+
+For different users, each gets an isolated workspace. Files persist across sessions for the same `workspace_id`.
+
+```python
+from agents import Agent, Runner
+from sandkasten import SandboxClient, sandbox_tools_for_workspace
+
+client = SandboxClient(base_url="...", api_key="...")
+
+# Per request: use workspace_id per user (e.g. from auth)
+user_id = "user-123"  # or f"tenant-{tid}-user-{uid}"
+async with sandbox_tools_for_workspace(client, workspace_id=user_id) as (session, tools):
+    agent = Agent(name="coding-assistant", instructions="...", tools=tools)
+    result = await Runner.run(agent, user_request)
+    print(result.final_output)
+```
+
+Available tools: `sandbox_exec`, `sandbox_write_file`, `sandbox_read_file`, `sandbox_list_files`, `sandbox_stats`.
+
+See [examples/openai_agents/](examples/openai_agents/) for runnable examples (minimal + multi-user workspace).
 
 ### LangChain
 

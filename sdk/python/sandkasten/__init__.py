@@ -28,3 +28,12 @@ __all__ = [
     "SandkastenAPIError",
     "SandkastenStreamError",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy import for agents integration (requires sandkasten[agents])."""
+    if name in ("SandkastenContext", "sandkasten_tools", "create_sandkasten_tools", "sandbox_tools_for_workspace"):
+        from . import agents as _agents
+
+        return getattr(_agents, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
