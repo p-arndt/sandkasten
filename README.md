@@ -172,10 +172,13 @@ task sandbench
 ./scripts/run_fresh_benchmark.sh
 
 # Optional: add parallel multi-user workspace/session benchmark
-PARALLEL_USERS=50 ./scripts/run_fresh_benchmark.sh
+./scripts/run_fresh_benchmark.sh --parallel-users 50
+
+# Run only parallel benchmark phase (skip startup cold/warm reports)
+./scripts/run_fresh_benchmark.sh --parallel-users 50 --only-parallel
 
 # Optional scaling sweep in one run (multiple concurrency levels)
-PARALLEL_USERS=10,25,50,100 ./scripts/run_fresh_benchmark.sh
+./scripts/run_fresh_benchmark.sh --parallel-users 10,25,50,100
 
 # The script writes startup-only reports and summaries into bench-reports/<timestamp>/
 # including summary.csv, summary.md, comparison.md
