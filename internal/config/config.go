@@ -35,6 +35,10 @@ type SecurityConfig struct {
 	Seccomp string `yaml:"seccomp"` // off | mvp | strict
 }
 
+type DashboardConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
 type Config struct {
 	Listen               string          `yaml:"listen"`
 	APIKey               string          `yaml:"api_key"`
@@ -49,6 +53,7 @@ type Config struct {
 	Pool                 PoolConfig      `yaml:"pool"`
 	Workspace            WorkspaceConfig `yaml:"workspace"`
 	Security             SecurityConfig  `yaml:"security"`
+	Dashboard            DashboardConfig `yaml:"dashboard"`
 }
 
 func Load(yamlPath string) (*Config, error) {
@@ -76,6 +81,9 @@ func Load(yamlPath string) (*Config, error) {
 		},
 		Security: SecurityConfig{
 			Seccomp: "off",
+		},
+		Dashboard: DashboardConfig{
+			Enabled: false,
 		},
 	}
 
@@ -167,6 +175,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("SANDKASTEN_POOL_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Pool.Enabled = b
+		}
+	}
+	if v := os.Getenv("SANDKASTEN_DASHBOARD_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Dashboard.Enabled = b
 		}
 	}
 }

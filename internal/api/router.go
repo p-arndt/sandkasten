@@ -52,11 +52,21 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/workspaces/{id}/fs", s.handleListWorkspaceFiles)
 	s.mux.HandleFunc("GET /v1/workspaces/{id}/fs/read", s.handleReadWorkspaceFile)
 
+	// Dashboard (HTML, same auth as API) — only when enabled
+	if s.cfg.Dashboard.Enabled {
+		s.mux.HandleFunc("GET /", s.handleDashboard)
+		s.mux.HandleFunc("GET /dashboard", s.handleDashboard)
+		s.mux.HandleFunc("POST /dashboard/login", s.handleDashboardLogin)
+		s.mux.HandleFunc("POST /dashboard/sessions", s.handleDashboardCreateSession)
+		s.mux.HandleFunc("POST /dashboard/sessions/bulk-destroy", s.handleDashboardBulkDestroy)
+		s.mux.HandleFunc("GET /dashboard/playground/{id}", s.handlePlayground)
+		s.mux.HandleFunc("POST /dashboard/sessions/{id}/destroy", s.handleDashboardDestroy)
+	}
+
 	// Health check (no auth)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

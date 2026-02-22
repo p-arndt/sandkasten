@@ -30,9 +30,9 @@ func validationDetails(err error) map[string]interface{} {
 }
 
 var (
-	// sessionIDPattern matches valid session IDs: first 12 chars of UUID (8 hex + "-" + 3 hex, as in session.Manager Create).
+	// sessionIDPattern matches valid session IDs: 12–13 chars (8 hex + "-" + 3–4 hex) or full UUID.
 	// Prevents path traversal when id is used in filepath.Join(dataDir, "sessions", id).
-	sessionIDPattern = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{3}$`)
+	sessionIDPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{3,4}$|^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
 
 	// workspaceIDPattern matches valid workspace IDs: lowercase letters, numbers, hyphens
 	// Prevents path traversal when id is used in filepath.Join(dataDir, "workspaces", id).

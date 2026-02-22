@@ -1,0 +1,79 @@
+{{define "content"}}
+<div class="card">
+  <h2>Create session</h2>
+  <form method="post" action="/dashboard/sessions">
+    <label>
+      Image
+      <select name="image">
+        {{range .Images}}
+        <option value="{{.}}" {{if eq . $.DefaultImg}}selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </label>
+    <label>
+      TTL (seconds)
+      <input type="number" name="ttl_seconds" value="1800" min="60" max="86400" step="60">
+    </label>
+    <label>
+      Workspace ID (optional)
+      <input type="text" name="workspace_id" placeholder="leave empty">
+    </label>
+    <button type="submit" class="btn btn-primary">Create</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Sessions</h2>
+  {{if .Sessions}}
+  <form id="bulkForm" method="post" action="/dashboard/sessions/bulk-destroy">
+  <div class="bulk-actions">
+    <span class="select-links">
+      <a href="#" onclick="document.querySelectorAll('.row-cb').forEach(c=>c.checked=true);return false">Select all</a>
+      <span> · </span>
+      <a href="#" onclick="document.querySelectorAll('.row-cb').forEach(c=>c.checked=false);return false">Deselect all</a>
+    </span>
+    <button type="submit" class="btn btn-danger btn-sm" onclick="var n=document.querySelectorAll('.row-cb:checked').length;return n>0&&confirm('Kill '+n+' selected session(s)?')">Delete selected</button>
+    <button type="button" class="btn btn-danger btn-sm" onclick="if(confirm('Kill ALL {{len .Sessions}} sessions?')){document.querySelectorAll('.row-cb').forEach(c=>c.checked=true);document.getElementById('bulkForm').submit()}">Delete all</button>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th><input type="checkbox" class="toggle-all" title="Toggle all"></th>
+        <th>ID</th>
+        <th>Image</th>
+        <th>Status</th>
+        <th>Source</th>
+        <th>Created</th>
+        <th>Expires</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Sessions}}
+      <tr>
+        <td><input type="checkbox" name="ids" value="{{.ID}}" class="row-cb"></td>
+        <td class="mono">{{.ID}}</td>
+        <td>{{.Image}}</td>
+        <td>
+          <span class="badge {{if eq .Status "running"}}badge-running{{else}}badge-pool{{end}}">{{.Status}}</span>
+        </td>
+        <td>{{if .AcquireSource}}{{.AcquireSource}}{{else}}-{{end}}</td>
+        <td>{{timeFormat .CreatedAt}}</td>
+        <td>{{timeFormat .ExpiresAt}}</td>
+        <td>
+          <a href="/dashboard/playground/{{.ID}}" class="btn btn-outline btn-sm">Playground</a>
+          <button type="submit" form="bulkForm" formaction="/dashboard/sessions/{{.ID}}/destroy" class="btn btn-danger btn-sm" onclick="return confirm('Kill session {{.ID}}?')">Kill</button>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  </form>
+  {{else}}
+  <p class="empty">No sessions. Create one above.</p>
+  {{end}}
+</div>
+<script>
+document.querySelector('.toggle-all')?.addEventListener('change',function(){document.querySelectorAll('.row-cb').forEach(c=>c.checked=this.checked)});
+</script>
+{{end}}

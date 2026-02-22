@@ -226,7 +226,8 @@ func runDaemon(args []string) int {
 
 	logger.Info("listening", "addr", cfg.Listen)
 	fmt.Fprintf(os.Stderr, "\n  sandkasten daemon ready\n")
-	fmt.Fprintf(os.Stderr, "  API:       http://%s/v1\n\n", cfg.Listen)
+	fmt.Fprintf(os.Stderr, "  API:       http://%s/v1\n", cfg.Listen)
+	fmt.Fprintf(os.Stderr, "  Dashboard: http://%s/\n\n", cfg.Listen)
 
 	if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
 		logger.Error("server error", "error", err)

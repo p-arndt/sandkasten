@@ -12,6 +12,8 @@ type contextKey string
 
 const requestIDKey contextKey = "request_id"
 
+const dashboardCookieName = "sandkasten_dashboard"
+
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -28,24 +30,49 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Accept Bearer token
 		auth := r.Header.Get("Authorization")
-		if auth == "" {
-			writeUnauthorizedError(w, "missing authorization header")
-			return
-		}
-
 		token := strings.TrimPrefix(auth, "Bearer ")
-		if token == auth || token != s.cfg.APIKey {
-			writeUnauthorizedError(w, "invalid api key")
+		if token != auth && token == s.cfg.APIKey {
+			next.ServeHTTP(w, r)
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		// Accept dashboard cookie (for browser form posts and dashboard pages)
+		if c, _ := r.Cookie(dashboardCookieName); c != nil && c.Value == s.cfg.APIKey {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Login flow: ?api_key=xxx sets cookie and redirects
+		if r.Method == http.MethodGet && r.URL.Query().Get("api_key") == s.cfg.APIKey {
+			http.SetCookie(w, &http.Cookie{
+				Name:     dashboardCookieName,
+				Value:    s.cfg.APIKey,
+				Path:     "/",
+				MaxAge:   86400 * 7, // 7 days
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+			})
+			q := r.URL.Query()
+			q.Del("api_key")
+			redirectURL := r.URL.Path
+			if q.Encode() != "" {
+				redirectURL += "?" + q.Encode()
+			}
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
+		}
+
+		writeUnauthorizedError(w, "missing or invalid authorization")
 	})
 }
 
 func isPublicPath(path, method string) bool {
 	if path == "/healthz" || path == "/" || strings.HasPrefix(path, "/_app/") {
+		return true
+	}
+	if path == "/dashboard/login" && method == http.MethodPost {
 		return true
 	}
 
