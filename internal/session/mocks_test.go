@@ -117,8 +117,8 @@ func (m *MockContainerPool) Put(ctx context.Context, sessionID string) error {
 	return args.Error(0)
 }
 
-func (m *MockContainerPool) Refill(ctx context.Context, image string, count int) error {
-	args := m.Called(ctx, image, count)
+func (m *MockContainerPool) Refill(ctx context.Context, image string, workspaceID string, count int) error {
+	args := m.Called(ctx, image, workspaceID, count)
 	return args.Error(0)
 }
 

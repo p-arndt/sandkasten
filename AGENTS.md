@@ -51,6 +51,9 @@ sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 # List sessions (like docker ps)
 ./bin/sandkasten ps
 
+# Web dashboard (disabled by default; set dashboard.enabled: true in config)
+# Create sessions, kill, bulk delete, playground. Log in via API key field when required.
+
 # Environment variables override config
 export SANDKASTEN_API_KEY="sk-test"
 sudo ./bin/sandkasten
@@ -106,9 +109,16 @@ HTTP Request → API Handler → Session Manager → Runtime Driver
                                     Runner (PID 1) ← PTY → bash (persistent)
 ```
 
+### Dashboard
+
+When `dashboard.enabled: true`, the daemon serves an HTML dashboard at `/` for managing sessions:
+- List sessions, create new ones, kill sessions
+- Playground: run commands in a session with streaming output
+- Uses same auth as API (Bearer token or `?api_key=xxx` to set cookie)
+
 ### Core Packages
 
-- `internal/api/` - HTTP routes, middleware, handlers
+- `internal/api/` - HTTP routes, middleware, handlers, dashboard templates
 - `internal/session/` - Session orchestration, per-session exec mutexes
 - `internal/runtime/` - Runtime driver interface
 - `internal/runtime/linux/` - Linux sandbox implementation

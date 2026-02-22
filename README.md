@@ -106,7 +106,7 @@ Edit `sandkasten.yaml` (in the repo root or where you run the daemon). Set `defa
 listen: "127.0.0.1:8080"
 api_key: "sk-test"
 data_dir: "/var/lib/sandkasten"
-default_image: "python"   # use the image you pulled
+default_image: "python" # use the image you pulled
 ```
 
 For more options (limits, workspaces, security) see [Configuration](./docs/configuration.md).
@@ -129,6 +129,59 @@ sudo ./bin/sandkasten stop   # stop daemon when run with daemon -d
 ```
 
 When running in foreground, stop with **Ctrl+C**.
+
+### Benchmark Sandkasten vs Docker
+
+Use `sandbench` to benchmark startup latency, CPU, and memory with a reproducible report that includes host hardware details. It supports:
+
+- cold and warm prepooled Sandkasten session creation
+- existing Sandkasten sessions (exec/stats without create)
+- workspace scenarios (`none`, `shared`, `per-run` / fresh environment)
+- Docker runs in the same style for direct comparison
+
+```bash
+# Build the benchmark tool
+task sandbench
+
+# Sandkasten benchmark (cold + warm + workload)
+./bin/sandbench --host http://127.0.0.1:8080 \
+  --image python \
+  --cold-runs 3 --warm-runs 3 \
+  --workload "python3 -m pip install requests"
+
+# Benchmark existing sessions too
+./bin/sandbench --host http://127.0.0.1:8080 \
+  --existing-session-ids "sess1,sess2" \
+  --existing-ping-cmd "python3 -V"
+
+# Fresh workspace per run (new environment each run)
+./bin/sandbench --host http://127.0.0.1:8080 \
+  --workspace-mode per-run \
+  --workload "python3 -m pip install numpy"
+
+# Direct comparison: Sandkasten + Docker on same machine
+./bin/sandbench --target both \
+  --host http://127.0.0.1:8080 --image python \
+  --docker-image python:3.12-slim \
+  --workload "python3 -m pip install requests"
+
+# JSON output for dashboards/CI
+./bin/sandbench --target both --image python --docker-image python:3.12-slim --json
+
+# Fully fresh benchmark campaign (new data_dir, init, image pull, cleanup)
+./scripts/run_fresh_benchmark.sh
+
+# Optional: add parallel multi-user workspace/session benchmark
+PARALLEL_USERS=50 ./scripts/run_fresh_benchmark.sh
+
+# Optional scaling sweep in one run (multiple concurrency levels)
+PARALLEL_USERS=10,25,50,100 ./scripts/run_fresh_benchmark.sh
+
+# The script writes startup-only reports and summaries into bench-reports/<timestamp>/
+# including summary.csv, summary.md, comparison.md
+# and when PARALLEL_USERS>0: parallel_summary.csv, parallel_summary.md,
+# parallel_scaling.csv, parallel_scaling.md
+```
 
 > [!IMPORTANT]
 > **Production:** Set a strong `api_key` (or `SANDKASTEN_API_KEY`). The daemon refuses to bind to a non-loopback address without an API key.
@@ -164,15 +217,16 @@ docker compose up -d
 
 ## Documentation
 
-| Guide | Description |
-|-------|-------------|
-| [Docs index](./docs/index.md) | Documentation entry point |
-| [Quickstart](./docs/quickstart.md) | Get running in 5 minutes |
-| [OpenAI Agents SDK](./docs/openai-agents.md) | Use Sandkasten as tools (exec, read, write) with the OpenAI Agents SDK |
-| [Windows / WSL2](./docs/windows.md) | Detailed Windows instructions |
-| [API Reference](./docs/api.md) | Complete HTTP API docs |
-| [Configuration](./docs/configuration.md) | Config options and security |
-| [Security Guide](./docs/security.md) | Hardened config and checklist |
+| Guide                                                                           | Description                                                                 |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [Docs index](./docs/index.md)                                                   | Documentation entry point                                                   |
+| [Quickstart](./docs/quickstart.md)                                              | Get running in 5 minutes                                                    |
+| [OpenAI Agents SDK](./docs/openai-agents.md)                                    | Use Sandkasten as tools (exec, read, write) with the OpenAI Agents SDK      |
+| [Windows / WSL2](./docs/windows.md)                                             | Detailed Windows instructions                                               |
+| [API Reference](./docs/api.md)                                                  | Complete HTTP API docs                                                      |
+| [Configuration](./docs/configuration.md)                                        | Config options and security                                                 |
+| [Security Guide](./docs/security.md)                                            | Hardened config and checklist                                               |
+| [Runtime Architecture Guide](./docs/architecture/runtime-architecture-guide.md) | Deep technical guide for namespaces, cgroups, PID 1, and rootfs/layer model |
 
 ---
 
@@ -230,16 +284,17 @@ npm install @sandkasten/client
 ```
 
 ```typescript
-import { SandboxClient } from '@sandkasten/client';
+import { SandboxClient } from "@sandkasten/client";
 
-const client = new SandboxClient({baseUrl: '...', apiKey: '...'});
+const client = new SandboxClient({ baseUrl: "...", apiKey: "..." });
 const session = await client.createSession();
-const result = await session.exec('echo hello');
+const result = await session.exec("echo hello");
 ```
 
 ## Security
 
 Sandboxes are isolated with:
+
 - ✅ Mount/PID/UTS/IPC namespaces
 - ✅ Optional network namespace (no network by default)
 - ✅ cgroups v2 resource limits
@@ -248,6 +303,7 @@ Sandboxes are isolated with:
 - ✅ Read-only base rootfs (overlayfs lower)
 
 For production:
+
 - Use strong API keys
 - Bind to localhost (use reverse proxy)
 - Keep network disabled
@@ -260,18 +316,18 @@ See [API Documentation](./docs/api.md) for complete reference.
 
 Quick reference:
 
-| Endpoint | Description |
-|----------|-------------|
-| `POST /v1/sessions` | Create session |
-| `GET /v1/sessions` | List sessions |
-| `GET /v1/sessions/{id}` | Get session |
-| `POST /v1/sessions/{id}/exec` | Execute command |
-| `POST /v1/sessions/{id}/fs/write` | Write file |
-| `POST /v1/sessions/{id}/fs/upload` | Upload file(s) (multipart) |
-| `GET /v1/sessions/{id}/fs/read` | Read file |
-| `DELETE /v1/sessions/{id}` | Destroy session |
-| `GET /v1/workspaces` | List workspaces |
-| `POST /v1/workspaces/{id}/fs/write` | Write file to workspace |
+| Endpoint                             | Description                             |
+| ------------------------------------ | --------------------------------------- |
+| `POST /v1/sessions`                  | Create session                          |
+| `GET /v1/sessions`                   | List sessions                           |
+| `GET /v1/sessions/{id}`              | Get session                             |
+| `POST /v1/sessions/{id}/exec`        | Execute command                         |
+| `POST /v1/sessions/{id}/fs/write`    | Write file                              |
+| `POST /v1/sessions/{id}/fs/upload`   | Upload file(s) (multipart)              |
+| `GET /v1/sessions/{id}/fs/read`      | Read file                               |
+| `DELETE /v1/sessions/{id}`           | Destroy session                         |
+| `GET /v1/workspaces`                 | List workspaces                         |
+| `POST /v1/workspaces/{id}/fs/write`  | Write file to workspace                 |
 | `POST /v1/workspaces/{id}/fs/upload` | Upload file(s) to workspace (multipart) |
 
 ---
@@ -283,6 +339,7 @@ Quick reference:
 ## Credits
 
 Built with:
+
 - Linux namespaces, cgroups, and overlayfs
 - [creack/pty](https://github.com/creack/pty) for PTY management
 - [modernc.org/sqlite](https://modernc.org/sqlite) for pure-Go SQLite

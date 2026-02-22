@@ -12,6 +12,7 @@ allowed_images:
 
 # Database and session settings
 db_path: "./sandkasten.db"
+# db_max_open_conns: 8  # optional; default 4; increase for high parallel load
 session_ttl_seconds: 1800  # 30 minutes
 
 # Container defaults
@@ -27,6 +28,10 @@ defaults:
 workspace:
   enabled: true
   persist_by_default: false  # require explicit workspace_id
+
+# Web dashboard (optional, disabled by default)
+dashboard:
+  enabled: true  # set to true for session list, create, kill, playground
 
 # Pre-warmed container pool (optional)
 pool:

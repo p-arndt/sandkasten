@@ -4,7 +4,7 @@ tasks:
   # Build everything
   build:
     desc: Build all binaries (runner, daemon, imgbuilder)
-    deps: [runner, daemon, imgbuilder]
+    deps: [runner, daemon, imgbuilder, sandbench]
 
   # Build the runner binary (static, linux)
   runner:
@@ -57,6 +57,16 @@ tasks:
       - cmd/sandkasten-wsl/**/*.go
     generates:
       - bin/sandkasten-wsl.exe
+
+  # Build sandbench benchmark tool
+  sandbench:
+    desc: Build the startup/workload benchmark tool
+    cmds:
+      - go build -o bin/sandbench{{exeExt}} ./cmd/sandbench
+    sources:
+      - cmd/sandbench/**/*.go
+    generates:
+      - bin/sandbench{{exeExt}}
 
   # Run the daemon (assumes already built)
   run:

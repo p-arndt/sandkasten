@@ -30,6 +30,7 @@ func TestCreateSuccess(t *testing.T) {
 	assert.Equal(t, "base", info.Image)
 	assert.Equal(t, "running", info.Status)
 	assert.Equal(t, "/workspace", info.Cwd)
+	assert.Equal(t, "cold", info.AcquireSource)
 
 	rt.AssertExpectations(t)
 	st.AssertExpectations(t)
@@ -87,7 +88,7 @@ func TestCreate_PoolHit_NoWorkspace(t *testing.T) {
 	st.On("GetSession", "pool-123").Return(pooledSess, nil)
 	st.On("UpdateSessionStatus", "pool-123", "running").Return(nil)
 	st.On("UpdateSessionActivity", "pool-123", "/workspace", mock.AnythingOfType("time.Time")).Return(nil)
-	pl.On("Refill", mock.Anything, "python", 1).Maybe().Return(nil) // runs in goroutine
+	pl.On("Refill", mock.Anything, "python", "", 0).Maybe().Return(nil) // runs in goroutine
 
 	info, err := mgr.Create(context.Background(), CreateOpts{Image: "python"})
 	require.NoError(t, err)
@@ -95,6 +96,7 @@ func TestCreate_PoolHit_NoWorkspace(t *testing.T) {
 	assert.Equal(t, "pool-123", info.ID)
 	assert.Equal(t, "python", info.Image)
 	assert.Equal(t, "running", info.Status)
+	assert.Equal(t, "pool", info.AcquireSource)
 
 	rt.AssertNotCalled(t, "Create")
 	pl.AssertNumberOfCalls(t, "Get", 1)
@@ -123,13 +125,14 @@ func TestCreate_PoolHit_WithWorkspace(t *testing.T) {
 	st.On("UpdateSessionWorkspace", "pool-456", "my-ws").Return(nil)
 	st.On("UpdateSessionStatus", "pool-456", "running").Return(nil)
 	st.On("UpdateSessionActivity", "pool-456", "/workspace", mock.AnythingOfType("time.Time")).Return(nil)
-	pl.On("Refill", mock.Anything, "python", 1).Maybe().Return(nil) // runs in goroutine
+	pl.On("Refill", mock.Anything, "python", "my-ws", 1).Maybe().Return(nil) // runs in goroutine
 
 	info, err := mgr.Create(context.Background(), CreateOpts{Image: "python", WorkspaceID: "my-ws"})
 	require.NoError(t, err)
 	require.NotNil(t, info)
 	assert.Equal(t, "pool-456", info.ID)
 	assert.Equal(t, "my-ws", info.WorkspaceID)
+	assert.Equal(t, "pool", info.AcquireSource)
 
 	rt.AssertNotCalled(t, "Create")
 	rt.AssertCalled(t, "MountWorkspace", mock.Anything, "pool-456", "my-ws")
@@ -156,6 +159,7 @@ func TestCreate_PoolHit_MountWorkspaceFails_FallsThroughToNormalCreate(t *testin
 	pl.On("Get", mock.Anything, "python", "my-ws").Return("pool-789", true)
 	st.On("GetSession", "pool-789").Return(pooledSess, nil)
 	rt.On("MountWorkspace", mock.Anything, "pool-789", "my-ws").Return(fmt.Errorf("mount failed"))
+	st.On("UpdateSessionStatus", "pool-789", "destroyed").Maybe().Return(nil)
 	rt.On("Destroy", mock.Anything, "pool-789").Return(nil)
 	rt.On("Create", mock.Anything, mock.MatchedBy(func(opts runtime.CreateOpts) bool {
 		return opts.Image == "python" && opts.WorkspaceID == "my-ws"
@@ -163,7 +167,7 @@ func TestCreate_PoolHit_MountWorkspaceFails_FallsThroughToNormalCreate(t *testin
 		SessionID: "new-session", InitPID: 999, CgroupPath: "/cgroup/new-session",
 	}, nil)
 	st.On("CreateSession", mock.AnythingOfType("*store.Session")).Return(nil)
-	pl.On("Refill", mock.Anything, "python", 1).Maybe().Return(nil)
+	pl.On("Refill", mock.Anything, "python", "my-ws", 1).Maybe().Return(nil)
 
 	info, err := mgr.Create(context.Background(), CreateOpts{Image: "python", WorkspaceID: "my-ws"})
 	require.NoError(t, err)

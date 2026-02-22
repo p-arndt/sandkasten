@@ -26,6 +26,13 @@ Welcome to the Sandkasten docs. This page is the entry point for all guides and 
 | [Streaming Exec](features/streaming.md)         | Real-time command output for long-running commands         |
 | [Session Pool](features/pool.md)                | Pre-warmed session pool for lower latency                  |
 
+## Architecture Deep Dives
+
+| Guide                                                              | Description                                                                   |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| [Session Lifecycle Deep Dive](architecture/session-lifecycle-deep-dive.md) | Internals of create/exec, overlayfs layers, pooling keys, and persistence rules |
+| [Runtime Architecture Guide](architecture/runtime-architecture-guide.md) | Detailed isolation internals: namespaces, cgroups, PID 1 model, rootfs layering |
+
 ---
 
 Start with [Quickstart](quickstart.md) if you're new. For production, read [Configuration](configuration.md) and [Security Guide](security.md).

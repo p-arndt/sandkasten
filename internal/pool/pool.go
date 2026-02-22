@@ -3,6 +3,7 @@ package pool
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,11 +14,11 @@ import (
 
 // PoolConfig defines the interface the pool needs from runtime and store.
 type PoolConfig struct {
-	Store        Store
-	CreateFunc   CreateFunc
-	Logger       *slog.Logger
-	SessionTTL   int
-	PoolExpiry   time.Duration // far future for pool_idle sessions
+	Store      Store
+	CreateFunc CreateFunc
+	Logger     *slog.Logger
+	SessionTTL int
+	PoolExpiry time.Duration // far future for pool_idle sessions
 }
 
 type Store interface {
@@ -29,7 +30,7 @@ type Store interface {
 
 // CreateFunc creates a new sandbox and returns (sessionID, initPID, cgroupPath, error).
 // The pool provides sessionID; CreateFunc creates the sandbox and registers it.
-type CreateFunc func(ctx context.Context, sessionID string, image string) (*CreateResult, error)
+type CreateFunc func(ctx context.Context, sessionID string, image string, workspaceID string) (*CreateResult, error)
 
 type CreateResult struct {
 	InitPID    int
@@ -41,8 +42,12 @@ type poolImpl struct {
 	config PoolConfig
 
 	mu     sync.Mutex
-	idle   map[string][]string // image -> []sessionID (idle sessions)
-	target map[string]int      // image -> target count
+	idle   map[string][]string // key(image|workspace) -> []sessionID (idle sessions)
+	target map[string]int      // key(image|"") -> static target count
+}
+
+func poolKey(image, workspaceID string) string {
+	return image + "|" + workspaceID
 }
 
 // New creates a new session pool. Returns nil if pool is disabled.
@@ -57,7 +62,7 @@ func New(cfg *config.Config, poolConfig PoolConfig) *poolImpl {
 	}
 	for img, n := range cfg.Pool.Images {
 		if n > 0 && (len(cfg.AllowedImages) == 0 || allowed[img]) {
-			target[img] = n
+			target[poolKey(img, "")] = n
 		}
 	}
 	if len(target) == 0 {
@@ -75,7 +80,13 @@ func New(cfg *config.Config, poolConfig PoolConfig) *poolImpl {
 // workspaceID is ignored for pool lookup; sessions are keyed by image only.
 // When workspaceID is non-empty, the caller must bind-mount the workspace into the session before use.
 func (p *poolImpl) Get(ctx context.Context, image string, workspaceID string) (string, bool) {
-	target, ok := p.target[image]
+	key := poolKey(image, workspaceID)
+	target, ok := p.target[key]
+	if workspaceID != "" && !ok {
+		// Dynamic workspace pools may not have static targets; still allow acquire.
+		target = 1
+		ok = true
+	}
 	if !ok || target <= 0 {
 		return "", false
 	}
@@ -83,13 +94,13 @@ func (p *poolImpl) Get(ctx context.Context, image string, workspaceID string) (s
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	ids := p.idle[image]
+	ids := p.idle[key]
 	if len(ids) == 0 {
 		return "", false
 	}
 
 	sessionID := ids[len(ids)-1]
-	p.idle[image] = ids[:len(ids)-1]
+	p.idle[key] = ids[:len(ids)-1]
 	return sessionID, true
 }
 
@@ -99,20 +110,27 @@ func (p *poolImpl) Put(ctx context.Context, sessionID string) error {
 }
 
 // Refill creates sandboxes in background until pool reaches target for image.
-func (p *poolImpl) Refill(ctx context.Context, image string, count int) error {
-	target, ok := p.target[image]
-	if !ok || target <= 0 {
-		return nil
-	}
-	if count <= 0 {
-		count = target
-	}
-	if count > target {
-		count = target
+func (p *poolImpl) Refill(ctx context.Context, image string, workspaceID string, count int) error {
+	key := poolKey(image, workspaceID)
+	target, ok := p.target[key]
+	if workspaceID == "" {
+		if !ok || target <= 0 {
+			return nil
+		}
+		if count <= 0 {
+			count = target
+		}
+		if count > target {
+			count = target
+		}
+	} else {
+		if count <= 0 {
+			count = 1
+		}
 	}
 
 	p.mu.Lock()
-	current := len(p.idle[image])
+	current := len(p.idle[key])
 	needed := count - current
 	p.mu.Unlock()
 
@@ -127,10 +145,10 @@ func (p *poolImpl) Refill(ctx context.Context, image string, count int) error {
 		default:
 		}
 		sessionID := uuid.New().String()[:12]
-		result, err := p.config.CreateFunc(ctx, sessionID, image)
+		result, err := p.config.CreateFunc(ctx, sessionID, image, workspaceID)
 		if err != nil {
 			if p.config.Logger != nil {
-				p.config.Logger.Warn("pool refill: create failed", "image", image, "error", err)
+				p.config.Logger.Warn("pool refill: create failed", "image", image, "workspace_id", workspaceID, "error", err)
 			}
 			continue
 		}
@@ -144,20 +162,20 @@ func (p *poolImpl) Refill(ctx context.Context, image string, count int) error {
 			CgroupPath:   result.CgroupPath,
 			Status:       storemod.StatusPoolIdle,
 			Cwd:          "/workspace",
-			WorkspaceID:  "",
+			WorkspaceID:  workspaceID,
 			CreatedAt:    now,
 			ExpiresAt:    expiresAt,
 			LastActivity: now,
 		}
 		if err := p.config.Store.CreateSession(sess); err != nil {
 			if p.config.Logger != nil {
-				p.config.Logger.Warn("pool refill: store failed", "session_id", sessionID, "error", err)
+				p.config.Logger.Warn("pool refill: store failed", "session_id", sessionID, "workspace_id", workspaceID, "error", err)
 			}
 			continue
 		}
 
 		p.mu.Lock()
-		p.idle[image] = append(p.idle[image], sessionID)
+		p.idle[key] = append(p.idle[key], sessionID)
 		p.mu.Unlock()
 	}
 	return nil
@@ -165,8 +183,9 @@ func (p *poolImpl) Refill(ctx context.Context, image string, count int) error {
 
 // RefillAll pre-warms the pool for all configured images (daemon startup).
 func (p *poolImpl) RefillAll(ctx context.Context) {
-	for image, count := range p.target {
-		if err := p.Refill(ctx, image, count); err != nil && ctx.Err() == nil && p.config.Logger != nil {
+	for key, count := range p.target {
+		image := strings.SplitN(key, "|", 2)[0]
+		if err := p.Refill(ctx, image, "", count); err != nil && ctx.Err() == nil && p.config.Logger != nil {
 			p.config.Logger.Warn("pool refill all: failed", "image", image, "error", err)
 		}
 	}

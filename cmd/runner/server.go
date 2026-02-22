@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -33,8 +34,7 @@ func runServer() {
 	}
 
 	startPTYReader(srv, ptmx)
-	waitForShellReady(srv)
-	configureShellForAPI(srv)
+	initializeShellForAPI(srv)
 
 	listener := setupSocket()
 	defer listener.Close()
@@ -62,15 +62,32 @@ func runStatelessServer() {
 	serveRequests(srv, listener)
 }
 
-// configureShellForAPI applies shell settings for clean non-interactive exec output.
-func configureShellForAPI(srv *server) {
-	// Disable terminal input echo so PTY output doesn't include echoed commands.
-	if _, err := srv.ptmx.Write([]byte("stty -echo\n")); err != nil {
-		fmt.Fprintf(os.Stderr, "configure shell: %v\n", err)
+// initializeShellForAPI waits for shell readiness and applies shell settings
+// without fixed sleeps. This reduces cold-start latency variance.
+func initializeShellForAPI(srv *server) {
+	srv.shellBuf.ReadAndReset()
+
+	readyMarker := fmt.Sprintf("__SANDKASTEN_READY_%d__", time.Now().UnixNano())
+	if _, err := srv.ptmx.Write([]byte(fmt.Sprintf("printf '%%s\\n' '%s'\n", readyMarker))); err != nil {
+		fmt.Fprintf(os.Stderr, "initialize shell: write ready probe: %v\n", err)
 		os.Exit(1)
 	}
-	// Let shell process the setup command, then clear any prompt/noise.
-	time.Sleep(50 * time.Millisecond)
+	if err := waitForShellMarker(srv, readyMarker, 2*time.Second); err != nil {
+		fmt.Fprintf(os.Stderr, "initialize shell: %v\n", err)
+		os.Exit(1)
+	}
+
+	configuredMarker := fmt.Sprintf("__SANDKASTEN_CONFIGURED_%d__", time.Now().UnixNano())
+	if _, err := srv.ptmx.Write([]byte(fmt.Sprintf("stty -echo >/dev/null 2>&1; printf '%%s\\n' '%s'\n", configuredMarker))); err != nil {
+		fmt.Fprintf(os.Stderr, "initialize shell: write configure command: %v\n", err)
+		os.Exit(1)
+	}
+	if err := waitForShellMarker(srv, configuredMarker, 2*time.Second); err != nil {
+		fmt.Fprintf(os.Stderr, "initialize shell: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Drop probe/prompt noise so first exec starts with clean buffer.
 	srv.shellBuf.ReadAndReset()
 }
 
@@ -142,10 +159,28 @@ func startPTYReader(srv *server, ptmx *os.File) {
 	}()
 }
 
-// waitForShellReady waits for shell initialization and discards startup output.
-func waitForShellReady(srv *server) {
-	time.Sleep(200 * time.Millisecond)
-	srv.shellBuf.ReadAndReset()
+// waitForShellMarker waits until marker appears in PTY output.
+func waitForShellMarker(srv *server, marker string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var buf strings.Builder
+
+	for time.Now().Before(deadline) {
+		chunk := srv.shellBuf.ReadAndReset()
+		if len(chunk) > 0 {
+			buf.Write(chunk)
+			if strings.Contains(buf.String(), marker) {
+				return nil
+			}
+			if buf.Len() > 64*1024 {
+				s := buf.String()
+				buf.Reset()
+				buf.WriteString(s[len(s)-32*1024:])
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	return fmt.Errorf("timeout waiting for shell marker %q", marker)
 }
 
 // setupSocket creates Unix socket listener.

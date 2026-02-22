@@ -40,7 +40,7 @@ func TestGet_EmptyPool(t *testing.T) {
 	pl := New(cfg, PoolConfig{
 		Store:      st,
 		PoolExpiry: 24 * time.Hour,
-		CreateFunc: func(ctx context.Context, sessionID string, image string) (*CreateResult, error) {
+		CreateFunc: func(ctx context.Context, sessionID string, image string, workspaceID string) (*CreateResult, error) {
 			createCount++
 			return &CreateResult{InitPID: 1, CgroupPath: "/cgroup/" + sessionID}, nil
 		},
@@ -54,7 +54,7 @@ func TestGet_EmptyPool(t *testing.T) {
 
 func TestRefillAndGet(t *testing.T) {
 	cfg := &config.Config{
-		Pool:        config.PoolConfig{Enabled: true, Images: map[string]int{"python": 2}},
+		Pool:          config.PoolConfig{Enabled: true, Images: map[string]int{"python": 2}},
 		AllowedImages: []string{},
 	}
 	st := testPoolStore(t)
@@ -62,14 +62,14 @@ func TestRefillAndGet(t *testing.T) {
 	pl := New(cfg, PoolConfig{
 		Store:      st,
 		PoolExpiry: 24 * time.Hour,
-		CreateFunc: func(ctx context.Context, sessionID string, image string) (*CreateResult, error) {
+		CreateFunc: func(ctx context.Context, sessionID string, image string, workspaceID string) (*CreateResult, error) {
 			createdIDs = append(createdIDs, sessionID)
 			return &CreateResult{InitPID: 1, CgroupPath: "/cgroup/" + sessionID}, nil
 		},
 	})
 	require.NotNil(t, pl)
 
-	require.NoError(t, pl.Refill(context.Background(), "python", 2))
+	require.NoError(t, pl.Refill(context.Background(), "python", "", 2))
 	assert.Len(t, createdIDs, 2)
 
 	sid1, ok := pl.Get(context.Background(), "python", "")
@@ -94,12 +94,12 @@ func TestGet_WithWorkspaceID(t *testing.T) {
 	pl := New(cfg, PoolConfig{
 		Store:      st,
 		PoolExpiry: 24 * time.Hour,
-		CreateFunc: func(ctx context.Context, sessionID string, image string) (*CreateResult, error) {
+		CreateFunc: func(ctx context.Context, sessionID string, image string, workspaceID string) (*CreateResult, error) {
 			return &CreateResult{InitPID: 1, CgroupPath: "/cgroup/" + sessionID}, nil
 		},
 	})
 	require.NotNil(t, pl)
-	require.NoError(t, pl.Refill(context.Background(), "python", 1))
+	require.NoError(t, pl.Refill(context.Background(), "python", "my-workspace", 1))
 
 	sid, ok := pl.Get(context.Background(), "python", "my-workspace")
 	require.True(t, ok)
@@ -115,20 +115,20 @@ func TestRefill_RespectsTarget(t *testing.T) {
 	pl := New(cfg, PoolConfig{
 		Store:      st,
 		PoolExpiry: 24 * time.Hour,
-		CreateFunc: func(ctx context.Context, sessionID string, image string) (*CreateResult, error) {
+		CreateFunc: func(ctx context.Context, sessionID string, image string, workspaceID string) (*CreateResult, error) {
 			createCount++
 			return &CreateResult{InitPID: 1, CgroupPath: "/cgroup/" + sessionID}, nil
 		},
 	})
 	require.NotNil(t, pl)
 
-	require.NoError(t, pl.Refill(context.Background(), "python", 2))
+	require.NoError(t, pl.Refill(context.Background(), "python", "", 2))
 	assert.Equal(t, 2, createCount)
 
-	require.NoError(t, pl.Refill(context.Background(), "python", 1))
+	require.NoError(t, pl.Refill(context.Background(), "python", "", 1))
 	assert.Equal(t, 2, createCount, "should not create more, already at 2")
 
-	require.NoError(t, pl.Refill(context.Background(), "python", 3))
+	require.NoError(t, pl.Refill(context.Background(), "python", "", 3))
 	assert.Equal(t, 3, createCount)
 }
 
@@ -141,7 +141,7 @@ func TestRefill_FiltersAllowedImages(t *testing.T) {
 	pl := New(cfg, PoolConfig{
 		Store:      st,
 		PoolExpiry: 24 * time.Hour,
-		CreateFunc: func(ctx context.Context, sessionID string, image string) (*CreateResult, error) {
+		CreateFunc: func(ctx context.Context, sessionID string, image string, workspaceID string) (*CreateResult, error) {
 			return &CreateResult{InitPID: 1, CgroupPath: "/cgroup/" + sessionID}, nil
 		},
 	})

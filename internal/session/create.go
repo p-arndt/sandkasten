@@ -21,31 +21,81 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 
 	ttl := m.resolveTTL(opts.TTLSeconds)
 	workspaceID := opts.WorkspaceID
+	acquireDetail := ""
 
 	if err := m.ensureWorkspace(ctx, workspaceID); err != nil {
 		return nil, err
 	}
 
-	// Try pool acquire first (works for both with and without workspace)
+	// Try pool acquire first (image+workspace aware).
 	if m.pool != nil {
 		if sessionID, ok := m.pool.Get(ctx, image, workspaceID); ok {
 			sess, err := m.store.GetSession(sessionID)
 			if err == nil && sess != nil {
-				// Bind-mount workspace if requested (pooled sessions start without workspace)
-				if workspaceID != "" {
-					if err := m.runtime.MountWorkspace(ctx, sessionID, workspaceID); err != nil {
-						_ = m.runtime.Destroy(ctx, sessionID)
-					} else if err := m.store.UpdateSessionWorkspace(sessionID, workspaceID); err != nil {
-						_ = m.runtime.Destroy(ctx, sessionID)
-					} else if info := m.finishPoolAcquire(ctx, sessionID, sess, workspaceID, ttl); info != nil {
-						go m.pool.Refill(context.Background(), image, 1)
+				// Workspace-aware pool entry: already mounted at create time.
+				if workspaceID != "" && sess.WorkspaceID == workspaceID {
+					if info := m.finishPoolAcquire(ctx, sessionID, sess, workspaceID, ttl); info != nil {
+						go m.pool.Refill(context.Background(), image, workspaceID, 1)
 						return info, nil
 					}
-				} else if info := m.finishPoolAcquire(ctx, sessionID, sess, workspaceID, ttl); info != nil {
-					go m.pool.Refill(context.Background(), image, 1)
-					return info, nil
+					acquireDetail = "pool_finish_acquire_failed"
+				} else if workspaceID != "" && sess.WorkspaceID != "" && sess.WorkspaceID != workspaceID {
+					acquireDetail = "pool_workspace_mismatch"
+					_ = m.store.UpdateSessionStatus(sessionID, "destroyed")
+					_ = m.runtime.Destroy(ctx, sessionID)
+					go m.pool.Refill(context.Background(), image, sess.WorkspaceID, 1)
+					// mismatch should not happen for keyed acquire, but fail safe to cold create
+				} else {
+					// Legacy/unbound pool entry: bind-mount workspace when needed.
+					if workspaceID != "" {
+						if err := m.runtime.MountWorkspace(ctx, sessionID, workspaceID); err != nil {
+							acquireDetail = "pool_mount_workspace_failed"
+							_ = m.store.UpdateSessionStatus(sessionID, "destroyed")
+							_ = m.runtime.Destroy(ctx, sessionID)
+						} else if err := m.store.UpdateSessionWorkspace(sessionID, workspaceID); err != nil {
+							acquireDetail = "pool_update_workspace_failed"
+							_ = m.store.UpdateSessionStatus(sessionID, "destroyed")
+							_ = m.runtime.Destroy(ctx, sessionID)
+						} else if info := m.finishPoolAcquire(ctx, sessionID, sess, workspaceID, ttl); info != nil {
+							go m.pool.Refill(context.Background(), image, workspaceID, 1)
+							return info, nil
+						} else {
+							acquireDetail = "pool_finish_acquire_failed"
+						}
+					} else if info := m.finishPoolAcquire(ctx, sessionID, sess, workspaceID, ttl); info != nil {
+						go m.pool.Refill(context.Background(), image, "", 0)
+						return info, nil
+					} else {
+						acquireDetail = "pool_finish_acquire_failed"
+					}
+				}
+			} else {
+				acquireDetail = "pool_session_lookup_failed"
+			}
+		} else if workspaceID != "" && !m.cfg.Defaults.ReadonlyRootfs {
+			// Optional fallback to global image pool when writable rootfs allows late bind-mount.
+			if sessionID, ok := m.pool.Get(ctx, image, ""); ok {
+				sess, err := m.store.GetSession(sessionID)
+				if err == nil && sess != nil {
+					if err := m.runtime.MountWorkspace(ctx, sessionID, workspaceID); err != nil {
+						acquireDetail = "pool_mount_workspace_failed"
+						_ = m.store.UpdateSessionStatus(sessionID, "destroyed")
+						_ = m.runtime.Destroy(ctx, sessionID)
+					} else if err := m.store.UpdateSessionWorkspace(sessionID, workspaceID); err != nil {
+						acquireDetail = "pool_update_workspace_failed"
+						_ = m.store.UpdateSessionStatus(sessionID, "destroyed")
+						_ = m.runtime.Destroy(ctx, sessionID)
+					} else if info := m.finishPoolAcquire(ctx, sessionID, sess, workspaceID, ttl); info != nil {
+						go m.pool.Refill(context.Background(), image, workspaceID, 1)
+						return info, nil
+					}
 				}
 			}
+			if acquireDetail == "" {
+				acquireDetail = "pool_empty"
+			}
+		} else {
+			acquireDetail = "pool_empty"
 		}
 	}
 
@@ -82,17 +132,23 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 
 	// Background refill when pool is enabled (replenish after normal create)
 	if m.pool != nil {
-		go m.pool.Refill(context.Background(), image, 1)
+		if workspaceID != "" {
+			go m.pool.Refill(context.Background(), image, workspaceID, 1)
+		} else {
+			go m.pool.Refill(context.Background(), image, "", 0)
+		}
 	}
 
 	return &SessionInfo{
-		ID:          sessionID,
-		Image:       image,
-		Status:      "running",
-		Cwd:         "/workspace",
-		WorkspaceID: workspaceID,
-		CreatedAt:   now,
-		ExpiresAt:   expiresAt,
+		ID:            sessionID,
+		Image:         image,
+		Status:        "running",
+		Cwd:           "/workspace",
+		AcquireSource: "cold",
+		AcquireDetail: acquireDetail,
+		WorkspaceID:   workspaceID,
+		CreatedAt:     now,
+		ExpiresAt:     expiresAt,
 	}, nil
 }
 
@@ -102,6 +158,8 @@ func (m *Manager) finishPoolAcquire(ctx context.Context, sessionID string, sess 
 	now := time.Now().UTC()
 	expiresAt := now.Add(time.Duration(ttl) * time.Second)
 	if err := m.store.UpdateSessionStatus(sessionID, "running"); err != nil {
+		_ = m.runtime.Destroy(ctx, sessionID)
+		_ = m.store.UpdateSessionStatus(sessionID, "destroyed")
 		return nil
 	}
 	if err := m.store.UpdateSessionActivity(sessionID, sess.Cwd, expiresAt); err != nil {
@@ -110,13 +168,14 @@ func (m *Manager) finishPoolAcquire(ctx context.Context, sessionID string, sess 
 		return nil
 	}
 	return &SessionInfo{
-		ID:          sessionID,
-		Image:       sess.Image,
-		Status:      "running",
-		Cwd:         sess.Cwd,
-		WorkspaceID: workspaceID,
-		CreatedAt:   sess.CreatedAt,
-		ExpiresAt:   expiresAt,
+		ID:            sessionID,
+		Image:         sess.Image,
+		Status:        "running",
+		Cwd:           sess.Cwd,
+		AcquireSource: "pool",
+		WorkspaceID:   workspaceID,
+		CreatedAt:     sess.CreatedAt,
+		ExpiresAt:     expiresAt,
 	}
 }
 

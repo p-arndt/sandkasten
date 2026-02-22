@@ -111,13 +111,15 @@ type CreateOpts struct {
 }
 
 type SessionInfo struct {
-	ID          string    `json:"id"`
-	Image       string    `json:"image"`
-	Status      string    `json:"status"`
-	Cwd         string    `json:"cwd"`
-	WorkspaceID string    `json:"workspace_id,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	ID            string    `json:"id"`
+	Image         string    `json:"image"`
+	Status        string    `json:"status"`
+	Cwd           string    `json:"cwd"`
+	AcquireSource string    `json:"acquire_source,omitempty"` // "pool" or "cold" on create
+	AcquireDetail string    `json:"acquire_detail,omitempty"` // optional reason for cold fallback
+	WorkspaceID   string    `json:"workspace_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	ExpiresAt     time.Time `json:"expires_at"`
 }
 
 type ExecResult struct {

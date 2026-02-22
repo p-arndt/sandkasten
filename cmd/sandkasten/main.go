@@ -176,12 +176,12 @@ func runDaemon(args []string) int {
 			Store:      st,
 			Logger:     logger,
 			SessionTTL: cfg.SessionTTLSeconds,
-			PoolExpiry: 10 * 365 * 24 * time.Hour, // 10 years for pool_idle sessions
-			CreateFunc: func(ctx context.Context, sessionID string, image string) (*pool.CreateResult, error) {
+			PoolExpiry: 1 * time.Hour, // 1 hour for pool_idle sessions
+			CreateFunc: func(ctx context.Context, sessionID string, image string, workspaceID string) (*pool.CreateResult, error) {
 				info, err := rt.Create(ctx, runtimepkg.CreateOpts{
 					SessionID:   sessionID,
 					Image:       image,
-					WorkspaceID: "",
+					WorkspaceID: workspaceID,
 				})
 				if err != nil {
 					return nil, err
@@ -227,7 +227,10 @@ func runDaemon(args []string) int {
 	logger.Info("listening", "addr", cfg.Listen)
 	fmt.Fprintf(os.Stderr, "\n  sandkasten daemon ready\n")
 	fmt.Fprintf(os.Stderr, "  API:       http://%s/v1\n", cfg.Listen)
-	fmt.Fprintf(os.Stderr, "  Dashboard: http://%s/\n\n", cfg.Listen)
+	if cfg.Dashboard.Enabled {
+		fmt.Fprintf(os.Stderr, "  Dashboard: http://%s/\n", cfg.Listen)
+	}
+	fmt.Fprintf(os.Stderr, "\n")
 
 	if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
 		logger.Error("server error", "error", err)

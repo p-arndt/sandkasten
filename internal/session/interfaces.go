@@ -30,12 +30,11 @@ type SessionStore interface {
 }
 
 // ContainerPool provides pre-warmed sessions for fast acquisition.
-// Get returns a session for the image regardless of workspaceID; when workspaceID is non-empty,
-// the caller must bind-mount the workspace into the session before use.
+// Pools can be keyed by image only (workspace_id="") or image+workspace_id.
 type ContainerPool interface {
 	Get(ctx context.Context, image string, workspaceID string) (string, bool)
 	Put(ctx context.Context, sessionID string) error
-	Refill(ctx context.Context, image string, count int) error
+	Refill(ctx context.Context, image string, workspaceID string, count int) error
 }
 
 type WorkspaceManager interface {

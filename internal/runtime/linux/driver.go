@@ -226,18 +226,18 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 	}
 
 	nsConfig := NsinitConfig{
-		SessionID:     opts.SessionID,
-		Mnt:           mnt,
-		CgroupPath:    cgPath,
-		RunnerPath:    "/usr/local/bin/runner",
-		UID:           runnerUID,
-		GID:           runnerGID,
-		NoNewPrivs:    true,
-		NetworkNone:   d.cfg.Defaults.NetworkMode != "host",
-		Readonly:      d.cfg.Defaults.ReadonlyRootfs,
-		Seccomp:       d.cfg.Security.Seccomp,
-		ShellPrefer:   d.cfg.Defaults.ShellPrefer,
-		ExecMode:      d.cfg.Defaults.ExecMode,
+		SessionID:   opts.SessionID,
+		Mnt:         mnt,
+		CgroupPath:  cgPath,
+		RunnerPath:  "/usr/local/bin/runner",
+		UID:         runnerUID,
+		GID:         runnerGID,
+		NoNewPrivs:  true,
+		NetworkNone: d.cfg.Defaults.NetworkMode != "host",
+		Readonly:    d.cfg.Defaults.ReadonlyRootfs,
+		Seccomp:     d.cfg.Security.Seccomp,
+		ShellPrefer: d.cfg.Defaults.ShellPrefer,
+		ExecMode:    d.cfg.Defaults.ExecMode,
 	}
 
 	cmd, nsinitLog, err := LaunchNsinit(nsConfig)
@@ -508,14 +508,38 @@ func (d *Driver) MountWorkspace(ctx context.Context, sessionID string, workspace
 		return fmt.Errorf("chown workspace: %w", err)
 	}
 
-	workspaceDst := filepath.Join(state.Mnt, "workspace")
-	cmd := exec.CommandContext(ctx, "nsenter", "-t", fmt.Sprint(state.InitPID), "-m",
-		"mount", "--bind", workspaceSrc, workspaceDst)
+	// Primary attempt: mount inside target mount+user namespace, destination path inside sandbox.
+	cmd := exec.CommandContext(ctx, "nsenter", "-t", fmt.Sprint(state.InitPID), "-m", "-U", "-r",
+		"mount", "--bind", workspaceSrc, "/workspace")
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("nsenter mount workspace: %w (output: %s)", err, string(out))
+	if err == nil {
+		return nil
 	}
-	return nil
+
+	// Fallback: mount from host namespace via target root path.
+	// This can work when source path resolution inside target ns is restricted.
+	procDst := fmt.Sprintf("/proc/%d/root/workspace", state.InitPID)
+	cmd2 := exec.CommandContext(ctx, "mount", "--bind", workspaceSrc, procDst)
+	out2, err2 := cmd2.CombinedOutput()
+	if err2 == nil {
+		return nil
+	}
+
+	// Last resort for readonly rootfs: temporary rw remount inside target ns.
+	if d.cfg.Defaults.ReadonlyRootfs {
+		cmd3 := exec.CommandContext(ctx, "nsenter", "-t", fmt.Sprint(state.InitPID), "-m", "-U", "-r",
+			"sh", "-lc",
+			"mount -o remount,rw / && mount --bind \"$1\" /workspace && mount -o remount,ro /",
+			"_", workspaceSrc,
+		)
+		out3, err3 := cmd3.CombinedOutput()
+		if err3 == nil {
+			return nil
+		}
+		return fmt.Errorf("mount workspace failed: nsenter=%w (%s); host-proc=%w (%s); rw-fallback=%w (%s)", err, strings.TrimSpace(string(out)), err2, strings.TrimSpace(string(out2)), err3, strings.TrimSpace(string(out3)))
+	}
+
+	return fmt.Errorf("mount workspace failed: nsenter=%w (%s); host-proc=%w (%s)", err, strings.TrimSpace(string(out)), err2, strings.TrimSpace(string(out2)))
 }
 
 // ListSessionDirIDs returns session IDs that have a session directory on disk

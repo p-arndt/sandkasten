@@ -1,6 +1,6 @@
 # Pre-warmed Session Pool
 
-Pre-create sandbox sessions so that `POST /v1/sessions` can return in **sub-100ms** when a session is available in the pool (target ~50ms), instead of ~200–450ms for a cold create.
+Pre-create sandbox sessions so that `POST /v1/sessions` can return in **sub-100ms** (often sub-1ms in local benchmarks) when a matching session is available in the pool, instead of cold create latency.
 
 ## How It Works
 
@@ -10,15 +10,14 @@ Daemon Startup
 ├─ Store sessions with status "pool_idle" (not subject to TTL expiry)
 └─ Pool ready
 
-User Creates Session (with or without workspace_id)
-├─ pool.Get(image) → session available? → acquire from pool (~50–80ms) ✅
-├─ If workspace_id: nsenter bind-mount workspace into /workspace
+User Creates Session
+├─ pool.Get(image, workspace_id) → matching session available? → acquire from pool ✅
 ├─ Update status to "running", set TTL, return to user
-├─ Refill pool in background (replenish 1 session)
-└─ If pool empty → normal create (~200–450ms), then refill in background
+├─ Refill pool in background for that key
+└─ If pool empty → normal create, then refill in background
 ```
 
-**Scope:** The pool supports both sessions **with** and **without** `workspace_id`. Pooled sessions start without a workspace; when a request includes `workspace_id`, the workspace directory is bind-mounted into `/workspace` at acquire time via `nsenter`.
+**Scope:** The pool supports both sessions **with** and **without** `workspace_id` using workspace-aware keys.
 
 ## Configuration
 
@@ -49,18 +48,17 @@ For typical usage (~100–200ms cold create), pooling is optional.
 
 ## Implementation Details
 
-- **Pool lifecycle:** At daemon startup, `RefillAll` creates the configured number of sandboxes per image. They are stored with status `pool_idle` and a far-future expiry so the reaper does not destroy them.
+- **Pool lifecycle:** At daemon startup, `RefillAll` creates the configured number of sandboxes per image (workspace_id = empty). They are stored with status `pool_idle` and far-future expiry so the reaper does not destroy them.
 - **Acquire:** `pool.Get` returns a session ID, which is removed from the pool. The session status is updated to `running` and `expires_at` is set to the user’s TTL.
-- **Refill:** After each create (pool hit or normal), a background goroutine calls `Refill` to add one session back for that image.
+- **Refill:** After each create (pool hit or normal), a background goroutine calls `Refill` to replenish the specific key (`image` or `image+workspace_id`).
 - **Release:** When a session is destroyed, it is not returned to the pool. The pool is replenished on demand by `Refill` after future creates.
 
 ## Workspace Support
 
-Sessions created with `workspace_id` can also use the pool. The flow:
+Sessions created with `workspace_id` can also use the pool via workspace-aware entries. The flow:
 
-1. Take an idle session from the pool (created without workspace)
-2. Use `nsenter` to enter the sandbox's mount namespace
-3. Bind-mount the workspace directory into `/workspace`
-4. Update the store and return the session to the user
+1. Check pool key `(image, workspace_id)`
+2. If hit: acquire directly and return
+3. If miss: normal create with `workspace_id`, then refill that key in background
 
-Adds ~10–30ms to pool acquire for the bind-mount step, still much faster than cold create. Requires `workspace.enabled: true` and the workspace to exist (created via `ensureWorkspace` before acquire).
+This avoids the previous late bind-mount-on-acquire path on readonly roots and gives consistent warm behavior for shared workspaces.
