@@ -28,7 +28,7 @@ async def main():
     )
 
     # Create a session
-    session = await client.create_session(image="sandbox-runtime:python")
+    session = await client.create_session(image="python")
 
     try:
         # Execute commands
@@ -43,8 +43,8 @@ async def main():
         print(result.output)  # Hello, World!
 
         # Read files
-        content = await session.read("hello.py")
-        print(content.decode())
+        result = await session.read("hello.py")
+        print(result.content.decode())
 
     finally:
         # Clean up
@@ -77,12 +77,13 @@ Create a new client.
 - **api_key**: API key for authentication
 - **timeout**: HTTP timeout in seconds
 
-#### `async create_session(*, image: str = "sandbox-runtime:python", ttl_seconds: int | None = None) -> Session`
+#### `async create_session(*, image: str = "python", ttl_seconds: int | None = None, workspace_id: str | None = None) -> Session`
 
 Create a new sandbox session.
 
-- **image**: Docker image (`sandbox-runtime:base`, `:python`, `:node`)
+- **image**: Image name (`base`, `python`, `node`)
 - **ttl_seconds**: Session lifetime (None = daemon default)
+- **workspace_id**: Persistent workspace ID (None = ephemeral)
 
 #### `async get_session(session_id: str) -> Session`
 
@@ -130,14 +131,24 @@ await session.write("script.py", "print('hello')")
 await session.write("data.bin", b"\x00\x01\x02")
 ```
 
-#### `async read(path: str, *, max_bytes: int | None = None) -> bytes`
+#### `async read(path: str, *, max_bytes: int | None = None) -> ReadResult`
 
-Read a file.
+Read a file. Returns `ReadResult` with `content`, `path`, and `truncated` fields.
 
 ```python
-content = await session.read("output.txt")
-print(content.decode())
+result = await session.read("output.txt")
+print(result.content.decode())
+if result.truncated:
+    print("(output was truncated)")
 ```
+
+#### `async upload(file: str | Path | BinaryIO, *, dest_path: str = "/workspace", filename: str | None = None) -> list[str]`
+
+Upload a file via multipart form. Returns list of uploaded paths.
+
+#### `async stats() -> SessionStats`
+
+Get resource usage (memory_bytes, memory_limit, cpu_usage_usec).
 
 #### `async info() -> SessionInfo`
 
@@ -175,8 +186,8 @@ async def write_file(path: str, content: str) -> str:
 @function_tool
 async def read_file(path: str) -> str:
     """Read a file."""
-    content = await session.read(path)
-    return content.decode()
+    result = await session.read(path)
+    return result.content.decode()
 
 agent = Agent(
     name="coding-assistant",
@@ -186,7 +197,7 @@ agent = Agent(
 
 async def main():
     global session
-    session = await client.create_session(image="sandbox-runtime:python")
+    session = await client.create_session(image="python")
     try:
         result = await Runner.run(
             agent,
@@ -218,19 +229,27 @@ async def sandbox_exec(cmd: str) -> str:
 
 ## Available Images
 
-- `sandbox-runtime:base` — Minimal Ubuntu with bash, coreutils
-- `sandbox-runtime:python` — Python 3 with pip, uv, common packages (requests, httpx, pandas, numpy, matplotlib, beautifulsoup4, etc.)
-- `sandbox-runtime:node` — Node.js 22 with npm
+- `base` — Minimal Ubuntu with bash, coreutils
+- `python` — Python 3 with pip, uv, common packages (requests, httpx, pandas, numpy, matplotlib, beautifulsoup4, etc.)
+- `node` — Node.js 22 with npm
 
 ## Error Handling
 
-All methods raise `httpx.HTTPError` on failure:
+All methods raise `httpx.HTTPError` on failure. Stream errors raise `SandkastenStreamError`:
 
 ```python
+from sandkasten import SandboxClient, SandkastenStreamError
+
 try:
     result = await session.exec("invalid-command")
 except httpx.HTTPStatusError as e:
     print(f"HTTP {e.response.status_code}: {e.response.text}")
+
+try:
+    async for chunk in session.exec_stream("fail-cmd"):
+        ...
+except SandkastenStreamError as e:
+    print(f"Stream error: {e}")
 ```
 
 ## Development
@@ -243,7 +262,8 @@ cd sandkasten/sdk/python
 # Install with uv
 uv sync
 
-# Run tests (TODO)
+# Install dev dependencies and run tests
+uv sync --extra dev
 pytest
 ```
 

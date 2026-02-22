@@ -55,13 +55,10 @@ class SessionInfo:
     """Unique session identifier"""
 
     image: str
-    """Docker image used for this session"""
+    """Image used for this session"""
 
-    container_id: str
-    """Docker container ID"""
-
-    status: Literal["running", "expired", "destroyed"]
-    """Current session status"""
+    status: str
+    """Current session status (running, expired, destroyed, etc.)"""
 
     cwd: str
     """Current working directory"""
@@ -72,5 +69,62 @@ class SessionInfo:
     expires_at: str
     """ISO8601 timestamp when session will expire"""
 
-    last_activity: str
-    """ISO8601 timestamp of last activity"""
+    workspace_id: str | None = None
+    """Persistent workspace ID if attached (None for ephemeral)"""
+
+    container_id: str | None = None
+    """Container ID (if exposed by backend)"""
+
+    last_activity: str | None = None
+    """ISO8601 timestamp of last activity (if exposed by backend)"""
+
+
+@dataclass
+class SessionStats:
+    """Resource usage statistics for a session."""
+
+    memory_bytes: int
+    """Current memory usage in bytes"""
+
+    memory_limit: int
+    """Memory limit in bytes (0 if not set)"""
+
+    cpu_usage_usec: int
+    """CPU usage in microseconds"""
+
+
+@dataclass
+class ReadResult:
+    """Result from reading a file from the sandbox."""
+
+    content: bytes
+    """File content"""
+
+    path: str
+    """Path that was read"""
+
+    truncated: bool
+    """Whether output was truncated due to max_bytes limit"""
+
+
+@dataclass
+class WorkspaceInfo:
+    """Information about a persistent workspace."""
+
+    id: str
+    """Workspace identifier"""
+
+
+def _parse_session_info(data: dict) -> SessionInfo:
+    """Parse API session dict into SessionInfo. Handles optional fields."""
+    return SessionInfo(
+        id=data["id"],
+        image=data["image"],
+        status=data["status"],
+        cwd=data["cwd"],
+        created_at=data["created_at"],
+        expires_at=data["expires_at"],
+        workspace_id=data.get("workspace_id") or None,
+        container_id=data.get("container_id"),
+        last_activity=data.get("last_activity"),
+    )

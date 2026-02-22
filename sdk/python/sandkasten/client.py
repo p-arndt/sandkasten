@@ -3,7 +3,7 @@
 import httpx
 
 from .session import Session
-from .types import SessionInfo
+from .types import SessionInfo, WorkspaceInfo, _parse_session_info
 
 
 class SandboxClient:
@@ -17,7 +17,7 @@ class SandboxClient:
         ...     base_url="http://localhost:8080",
         ...     api_key="sk-sandbox-quickstart"
         ... )
-        >>> session = await client.create_session(image="sandbox-runtime:python")
+        >>> session = await client.create_session(image="python")
         >>> try:
         ...     result = await session.exec("pip install requests")
         ...     print(result.output)
@@ -124,35 +124,26 @@ class SandboxClient:
         resp.raise_for_status()
         data = resp.json()
 
-        return [
-            SessionInfo(
-                id=s["id"],
-                image=s["image"],
-                container_id=s["container_id"],
-                status=s["status"],
-                cwd=s["cwd"],
-                created_at=s["created_at"],
-                expires_at=s["expires_at"],
-                last_activity=s["last_activity"],
-            )
-            for s in data.get("sessions", [])
-        ]
+        # API returns raw array, not {"sessions": [...]}
+        sessions = data if isinstance(data, list) else data.get("sessions", [])
+        return [_parse_session_info(s) for s in sessions]
 
-    async def list_workspaces(self) -> list[dict]:
+    async def list_workspaces(self) -> list[WorkspaceInfo]:
         """List all persistent workspaces.
 
         Returns:
-            List of workspace metadata dicts
+            List of WorkspaceInfo objects
 
         Example:
             >>> workspaces = await client.list_workspaces()
             >>> for ws in workspaces:
-            ...     print(f"{ws['id']}: {ws.get('size_mb', 0)} MB")
+            ...     print(ws.id)
         """
         resp = await self._http.get("/v1/workspaces")
         resp.raise_for_status()
         data = resp.json()
-        return data.get("workspaces", [])
+        raw = data.get("workspaces", [])
+        return [WorkspaceInfo(id=w["id"]) for w in raw]
 
     async def delete_workspace(self, workspace_id: str) -> None:
         """Delete a persistent workspace.

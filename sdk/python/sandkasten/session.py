@@ -2,11 +2,14 @@
 
 import base64
 import json
-from typing import TYPE_CHECKING, AsyncIterator
+from pathlib import Path
+from typing import TYPE_CHECKING, AsyncIterator, BinaryIO
 
 import httpx
 
-from .types import ExecResult, ExecChunk, SessionInfo
+from .exceptions import SandkastenStreamError
+from .types import ExecChunk, ExecResult, ReadResult, SessionInfo, SessionStats
+from .types import _parse_session_info
 
 if TYPE_CHECKING:
     from .client import SandboxClient
@@ -21,7 +24,7 @@ class Session:
     - Current working directory across exec calls
 
     Example:
-        >>> session = await client.create_session(image="sandbox-runtime:python")
+        >>> session = await client.create_session(image="python")
         >>> result = await session.exec("echo 'Hello from sandbox'")
         >>> print(result.output)
         Hello from sandbox
@@ -125,6 +128,7 @@ class Session:
         ) as resp:
             resp.raise_for_status()
 
+            event_type = ""
             async for line in resp.aiter_lines():
                 if not line.strip():
                     continue
@@ -154,7 +158,7 @@ class Session:
                             duration_ms=data.get("duration_ms", 0),
                         )
                     elif event_type == "error":
-                        raise Exception(data.get("error", "Unknown error"))
+                        raise SandkastenStreamError(data.get("error", "Unknown error"))
 
     async def write(
         self,
@@ -193,7 +197,7 @@ class Session:
         path: str,
         *,
         max_bytes: int | None = None,
-    ) -> bytes:
+    ) -> ReadResult:
         """Read a file from the sandbox.
 
         Args:
@@ -201,15 +205,16 @@ class Session:
             max_bytes: Maximum bytes to read (None for no limit)
 
         Returns:
-            File content as bytes
+            ReadResult with content, path, and truncated flag
 
         Raises:
             httpx.HTTPError: If the request fails or file doesn't exist
 
         Example:
-            >>> content = await session.read("output.txt")
-            >>> print(content.decode())
-            File contents here
+            >>> result = await session.read("output.txt")
+            >>> print(result.content.decode())
+            >>> if result.truncated:
+            ...     print("(output was truncated)")
         """
         params = {"path": path}
         if max_bytes is not None:
@@ -222,7 +227,87 @@ class Session:
         resp.raise_for_status()
         data = resp.json()
 
-        return base64.b64decode(data["content_base64"])
+        content = base64.b64decode(data["content_base64"])
+        return ReadResult(
+            content=content,
+            path=data.get("path", path),
+            truncated=data.get("truncated", False),
+        )
+
+    async def upload(
+        self,
+        file: str | Path | BinaryIO,
+        *,
+        dest_path: str = "/workspace",
+        filename: str | None = None,
+    ) -> list[str]:
+        """Upload a file to the sandbox via multipart form.
+
+        Args:
+            file: Path to file (str/Path) or file-like object (BinaryIO)
+            dest_path: Base directory for upload (default: /workspace)
+            filename: Override filename (required when file is BinaryIO)
+
+        Returns:
+            List of uploaded paths
+
+        Raises:
+            httpx.HTTPError: If the request fails
+            ValueError: If filename is required but not provided (BinaryIO without name)
+
+        Example:
+            >>> paths = await session.upload("script.py")
+            >>> paths = await session.upload("data.csv", dest_path="/workspace/data")
+        """
+        to_close: BinaryIO | None = None
+        try:
+            if hasattr(file, "read"):
+                # BinaryIO
+                f = file
+                name = filename or getattr(f, "name", None)
+                if not name:
+                    raise ValueError("filename required when uploading file-like object")
+                files = {"file": (Path(name).name, f)}
+            else:
+                path = Path(file)
+                if not path.is_file():
+                    raise FileNotFoundError(f"File not found: {path}")
+                to_close = path.open("rb")
+                files = {"file": (path.name, to_close)}
+
+            resp = await self._client._http.post(
+                f"/v1/sessions/{self._id}/fs/upload",
+                data={"path": dest_path},
+                files=files,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("paths", [])
+        finally:
+            if to_close is not None:
+                to_close.close()
+
+    async def stats(self) -> SessionStats:
+        """Get resource usage statistics for this session.
+
+        Returns:
+            SessionStats with memory_bytes, memory_limit, cpu_usage_usec
+
+        Raises:
+            httpx.HTTPError: If the request fails
+
+        Example:
+            >>> stats = await session.stats()
+            >>> print(f"Memory: {stats.memory_bytes / 1024 / 1024:.1f} MB")
+        """
+        resp = await self._client._http.get(f"/v1/sessions/{self._id}/stats")
+        resp.raise_for_status()
+        data = resp.json()
+        return SessionStats(
+            memory_bytes=data.get("memory_bytes", 0),
+            memory_limit=data.get("memory_limit", 0),
+            cpu_usage_usec=data.get("cpu_usage_usec", 0),
+        )
 
     async def info(self) -> SessionInfo:
         """Get current session information.
@@ -237,17 +322,7 @@ class Session:
         resp = await self._client._http.get(f"/v1/sessions/{self._id}")
         resp.raise_for_status()
         data = resp.json()
-
-        return SessionInfo(
-            id=data["id"],
-            image=data["image"],
-            container_id=data["container_id"],
-            status=data["status"],
-            cwd=data["cwd"],
-            created_at=data["created_at"],
-            expires_at=data["expires_at"],
-            last_activity=data["last_activity"],
-        )
+        return _parse_session_info(data)
 
     async def destroy(self) -> None:
         """Destroy the sandbox session and clean up resources.
