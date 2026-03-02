@@ -145,9 +145,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          # update package.json version to match tag before publishing
-          pnpm version "${{ steps.get_tag.outputs.VERSION }}" --no-git-tag-version
-          pnpm publish --access public
+          # update package.json version to match tag for this CI run only
+          node -e "const fs=require('fs'); const path='package.json'; const pkg=JSON.parse(fs.readFileSync(path,'utf8')); pkg.version='${{ steps.get_tag.outputs.VERSION }}'.replace(/^v/, ''); fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');"
+          pnpm publish --access public --no-git-checks --provenance
 
   build-python-sdk:
     runs-on: ubuntu-latest
