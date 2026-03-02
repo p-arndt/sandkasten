@@ -294,8 +294,8 @@ func EnsureResolvConf(mnt string) error {
 }
 
 // SetupFilesystem builds the sandbox rootfs: overlay mount, resolv/hosts, workspace bind,
-// /run/sandkasten bind (runner socket dir), /tmp tmpfs, and minimal /dev.
-func SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runHostDir string) error {
+// dedicated /run/sandkasten tmpfs (runner socket dir), /tmp tmpfs, and minimal /dev.
+func SetupFilesystem(lower, upper, work, mnt, workspaceSrc string, runUID, runGID int) error {
 	if err := MkdirAll(upper); err != nil {
 		return err
 	}
@@ -305,10 +305,6 @@ func SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runHostDir string) e
 	if err := MkdirAll(mnt); err != nil {
 		return err
 	}
-	if err := MkdirAll(runHostDir); err != nil {
-		return err
-	}
-
 	if err := MountOverlay(lower, upper, work, mnt); err != nil {
 		return err
 	}
@@ -334,7 +330,13 @@ func SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runHostDir string) e
 	if err := MkdirAll(runDst); err != nil {
 		return err
 	}
-	if err := BindMount(runHostDir, runDst, false); err != nil {
+	if err := MountTmpfs(runDst, 8*1024*1024); err != nil {
+		return err
+	}
+	if err := os.Chown(runDst, runUID, runGID); err != nil {
+		return err
+	}
+	if err := os.Chmod(runDst, 0700); err != nil {
 		return err
 	}
 

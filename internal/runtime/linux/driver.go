@@ -14,7 +14,7 @@
 //	  upper/       overlay upper layer (session writes)
 //	  work/        overlay work dir
 //	  mnt/         overlay mount point (merged rootfs)
-//	  run/         bind-mounted into sandbox as /run/sandkasten (runner.sock lives here)
+//	  run/         host-side runtime artifacts (not mounted into sandbox)
 //	  state.json   InitPID, CgroupPath, Mnt, etc.
 package linux
 
@@ -146,7 +146,6 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 	upper := filepath.Join(sessionDir, "upper")
 	work := filepath.Join(sessionDir, "work")
 	mnt := filepath.Join(sessionDir, "mnt")
-	runHostDir := filepath.Join(sessionDir, protocol.RunDirName)
 
 	var workspaceSrc string
 	if opts.WorkspaceID != "" {
@@ -159,7 +158,7 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		}
 	}
 
-	if err := SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runHostDir); err != nil {
+	if err := SetupFilesystem(lower, upper, work, mnt, workspaceSrc, runnerUID, runnerGID); err != nil {
 		d.cleanupSessionDir(sessionDir)
 		return nil, fmt.Errorf("setup filesystem: %w", err)
 	}
@@ -206,12 +205,6 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 			d.cleanupSessionDir(sessionDir)
 			return nil, fmt.Errorf("remount readonly rootfs: %w", err)
 		}
-	}
-
-	if err := os.Chown(runHostDir, runnerUID, runnerGID); err != nil {
-		CleanupMounts(mnt)
-		d.cleanupSessionDir(sessionDir)
-		return nil, fmt.Errorf("chown run dir %s: %w", runHostDir, err)
 	}
 
 	cgConfig := CgroupConfig{
