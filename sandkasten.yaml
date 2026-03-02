@@ -9,6 +9,9 @@ defaults:
   network_mode: "bridge"
 security:
   seccomp: "strict"
+workspace:
+  enabled: true
+  persist_by_default: false
 pool:
   enabled: true
   images:
