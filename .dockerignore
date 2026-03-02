@@ -14,8 +14,8 @@ web/build/
 internal/web/dist/
 
 # SDK
-sdk/node_modules/
-sdk/dist/
+sdk/typescript/node_modules/
+sdk/typescript/dist/
 sdk/python/__pycache__/
 sdk/python/*.pyc
 sdk/python/dist/

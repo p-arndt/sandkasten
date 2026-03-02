@@ -55,7 +55,7 @@ func NewDriver(cfg *config.Config, logger *slog.Logger) (*Driver, error) {
 	if err := DetectCgroupV2(); err != nil {
 		return nil, fmt.Errorf("cgroup v2 check failed: %w", err)
 	}
-	if err := DetectOverlayFS(); err != nil {
+	if err := DetectOverlayFS(cfg.DataDir); err != nil {
 		return nil, fmt.Errorf("overlayfs check failed: %w", err)
 	}
 	if err := DetectMountPropagation(); err != nil {

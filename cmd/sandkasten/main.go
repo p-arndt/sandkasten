@@ -37,6 +37,10 @@ func main() {
 	}
 
 	if len(os.Args) > 1 {
+		if len(os.Args[1]) > 0 && os.Args[1][0] == '-' {
+			os.Exit(runDaemon(os.Args[1:]))
+		}
+
 		switch os.Args[1] {
 		case "help", "-h", "--help":
 			printMainUsage()

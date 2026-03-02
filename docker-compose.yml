@@ -18,6 +18,6 @@ services:
     environment:
       SANDKASTEN_API_KEY: sk-test
 
-    command: ["/bin/sandkasten", "--config", "/etc/sandkasten/sandkasten.yaml"]
+    command: ["/bin/sandkasten", "daemon", "--config", "/etc/sandkasten/sandkasten.yaml"]
     ports:
-      - "8080:8080"
+      - "8888:8080"

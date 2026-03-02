@@ -46,4 +46,4 @@ COPY sandkasten.yaml /etc/sandkasten/sandkasten.yaml
 EXPOSE 8080
 
 # Default entrypoint
-CMD ["/bin/sandkasten", "--config", "/etc/sandkasten/sandkasten.yaml"]
+CMD ["/bin/sandkasten", "daemon", "--config", "/etc/sandkasten/sandkasten.yaml"]

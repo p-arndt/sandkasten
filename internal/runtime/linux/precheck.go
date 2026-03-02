@@ -13,8 +13,20 @@ import (
 
 // DetectOverlayFS verifies overlayfs works by performing a minimal overlay mount
 // (create temp lower/upper/work/mnt, mount overlay, unmount, cleanup).
-func DetectOverlayFS() error {
-	tmpDir, err := os.MkdirTemp("", "sandkasten-overlay-probe-")
+//
+// The probe is created under baseDir to match the actual backing filesystem used
+// for session upper/work dirs. Probing in /tmp can fail in nested/containerized
+// setups where /tmp lives on overlayfs while data_dir is on a different fs.
+func DetectOverlayFS(baseDir string) error {
+	probeParent := baseDir
+	if probeParent == "" {
+		probeParent = os.TempDir()
+	}
+	if err := os.MkdirAll(probeParent, 0755); err != nil {
+		return fmt.Errorf("create overlay probe parent %s: %w", probeParent, err)
+	}
+
+	tmpDir, err := os.MkdirTemp(probeParent, "sandkasten-overlay-probe-")
 	if err != nil {
 		return fmt.Errorf("create overlay probe temp dir: %w", err)
 	}
