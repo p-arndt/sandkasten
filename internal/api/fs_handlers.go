@@ -76,6 +76,10 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeValidationError(w, "no file provided: use form field 'file' or 'files'", nil)
 		return
 	}
+	if len(files) > MaxUploadFiles {
+		writeValidationError(w, "too many files", map[string]any{"max_files": MaxUploadFiles})
+		return
+	}
 
 	var uploaded []string
 	for _, fh := range files {

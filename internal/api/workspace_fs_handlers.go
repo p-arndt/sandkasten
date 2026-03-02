@@ -81,6 +81,10 @@ func (s *Server) handleUploadWorkspaceFile(w http.ResponseWriter, r *http.Reques
 		writeValidationError(w, "no file provided: use form field 'file' or 'files'", nil)
 		return
 	}
+	if len(files) > MaxUploadFiles {
+		writeValidationError(w, "too many files", map[string]any{"max_files": MaxUploadFiles})
+		return
+	}
 
 	var uploaded []string
 	for _, fh := range files {

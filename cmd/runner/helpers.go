@@ -38,7 +38,7 @@ func (rb *ringBuffer) ReadAndReset() []byte {
 
 // sanitizePath ensures all paths resolve within /workspace.
 // Prevents path traversal attacks by verifying the cleaned path stays within bounds.
-func sanitizePath(p string) string {
+func sanitizePath(p string) (string, bool) {
 	// Always resolve relative to /workspace
 	target := p
 	if !filepath.IsAbs(p) {
@@ -48,7 +48,7 @@ func sanitizePath(p string) string {
 
 	// Verify result is within /workspace (prevent escaping via absolute paths or ..)
 	if !strings.HasPrefix(target, "/workspace/") && target != "/workspace" {
-		return "/workspace" // Safe fallback for invalid paths
+		return "", false
 	}
-	return target
+	return target, true
 }

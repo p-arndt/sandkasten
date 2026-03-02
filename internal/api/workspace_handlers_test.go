@@ -162,3 +162,27 @@ func TestHandleUploadWorkspaceFile_NoFile(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestHandleUploadWorkspaceFile_TooManyFiles(t *testing.T) {
+	mockMgr := &MockSessionService{}
+	s := testAPIServer(mockMgr)
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for i := 0; i < MaxUploadFiles+1; i++ {
+		part, err := w.CreateFormFile("files", fmt.Sprintf("f-%d.txt", i))
+		require.NoError(t, err)
+		_, _ = part.Write([]byte("x"))
+	}
+	require.NoError(t, w.Close())
+
+	req := httptest.NewRequest("POST", "/v1/workspaces/my-ws/fs/upload", &buf)
+	req.SetPathValue("id", "my-ws")
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	s.handleUploadWorkspaceFile(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	mockMgr.AssertNotCalled(t, "WriteWorkspaceFile", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}

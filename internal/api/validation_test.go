@@ -147,13 +147,18 @@ func TestValidateWriteRequest(t *testing.T) {
 		},
 		{
 			name:    "both text and base64",
-			req:     writeRequest{Path: "/test", Text: "hello", ContentBase64: "aGVsbG8="},
+			req:     writeRequest{Path: "/workspace/test", Text: "hello", ContentBase64: "aGVsbG8="},
 			wantErr: "provide either 'text' or 'content_base64', not both",
 		},
 		{
 			name:    "neither text nor base64",
-			req:     writeRequest{Path: "/test"},
+			req:     writeRequest{Path: "/workspace/test"},
 			wantErr: "either 'text' or 'content_base64' must be provided",
+		},
+		{
+			name:    "path outside workspace",
+			req:     writeRequest{Path: "/etc/passwd", Text: "hello"},
+			wantErr: "path must be under /workspace",
 		},
 	}
 
@@ -192,15 +197,20 @@ func TestValidateReadRequest(t *testing.T) {
 		},
 		{
 			name:     "negative max_bytes",
-			path:     "/test",
+			path:     "/workspace/test",
 			maxBytes: -1,
 			wantErr:  "max_bytes must be non-negative",
 		},
 		{
 			name:     "max_bytes too large",
-			path:     "/test",
+			path:     "/workspace/test",
 			maxBytes: 100*1024*1024 + 1,
 			wantErr:  "max_bytes must not exceed",
+		},
+		{
+			name:    "path outside workspace",
+			path:    "/etc/passwd",
+			wantErr: "path must be under /workspace",
 		},
 	}
 

@@ -140,6 +140,12 @@ func validateWriteRequest(req writeRequest) error {
 	if req.Path == "" {
 		return fmt.Errorf("path is required")
 	}
+	if err := ValidateWorkspaceFilePath(req.Path); err != nil {
+		return err
+	}
+	if filepath.Clean(req.Path) == "/workspace" {
+		return fmt.Errorf("path must point to a file under /workspace")
+	}
 
 	// Check that either text or content_base64 is provided, but not both
 	if req.Text != "" && req.ContentBase64 != "" {
@@ -170,6 +176,9 @@ func validateWriteWorkspaceRequest(req writeWorkspaceRequest) error {
 // MaxUploadBytes is the maximum size for multipart file uploads (10 MB).
 const MaxUploadBytes = 10 * 1024 * 1024
 
+// MaxUploadFiles limits the number of files in a single multipart upload request.
+const MaxUploadFiles = 100
+
 // ValidateWorkspaceFilePath ensures the path is within /workspace and safe (no path traversal).
 func ValidateWorkspaceFilePath(path string) error {
 	if path == "" {
@@ -190,6 +199,12 @@ func ValidateWorkspaceFilePath(path string) error {
 func validateReadRequest(path string, maxBytes int) error {
 	if path == "" {
 		return fmt.Errorf("path query parameter is required")
+	}
+	if err := ValidateWorkspaceFilePath(path); err != nil {
+		return err
+	}
+	if filepath.Clean(path) == "/workspace" {
+		return fmt.Errorf("path must point to a file under /workspace")
 	}
 
 	if maxBytes < 0 {

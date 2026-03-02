@@ -52,9 +52,9 @@ func TestHandleWrite_NotFound(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Write", mock.Anything, "00000000-001", "/test", mock.Anything, false).Return(fmt.Errorf("%w: 00000000-001", session.ErrNotFound))
+	mockMgr.On("Write", mock.Anything, "00000000-001", "/workspace/test", mock.Anything, false).Return(fmt.Errorf("%w: 00000000-001", session.ErrNotFound))
 
-	body := `{"path":"/test","text":"hello"}`
+	body := `{"path":"/workspace/test","text":"hello"}`
 	req := httptest.NewRequest("POST", "/v1/sessions/00000000-001/fs/write", strings.NewReader(body))
 	req.SetPathValue("id", "00000000-001")
 	req.Header.Set("Content-Type", "application/json")
@@ -102,9 +102,9 @@ func TestHandleRead_WithMaxBytes(t *testing.T) {
 	mockMgr := &MockSessionService{}
 	s := testAPIServer(mockMgr)
 
-	mockMgr.On("Read", mock.Anything, "a1b2c3d4-e5f", "/test", 1024).Return("data", false, nil)
+	mockMgr.On("Read", mock.Anything, "a1b2c3d4-e5f", "/workspace/test", 1024).Return("data", false, nil)
 
-	req := httptest.NewRequest("GET", "/v1/sessions/a1b2c3d4-e5f/fs/read?path=/test&max_bytes=1024", nil)
+	req := httptest.NewRequest("GET", "/v1/sessions/a1b2c3d4-e5f/fs/read?path=/workspace/test&max_bytes=1024", nil)
 	req.SetPathValue("id", "a1b2c3d4-e5f")
 	rec := httptest.NewRecorder()
 
@@ -124,6 +124,36 @@ func TestHandleRead_InvalidMaxBytes(t *testing.T) {
 	s.handleRead(rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandleWrite_PathOutsideWorkspace(t *testing.T) {
+	mockMgr := &MockSessionService{}
+	s := testAPIServer(mockMgr)
+
+	body := `{"path":"/etc/passwd","text":"hello"}`
+	req := httptest.NewRequest("POST", "/v1/sessions/a1b2c3d4-e5f/fs/write", strings.NewReader(body))
+	req.SetPathValue("id", "a1b2c3d4-e5f")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	s.handleWrite(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	mockMgr.AssertNotCalled(t, "Write", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestHandleRead_PathOutsideWorkspace(t *testing.T) {
+	mockMgr := &MockSessionService{}
+	s := testAPIServer(mockMgr)
+
+	req := httptest.NewRequest("GET", "/v1/sessions/a1b2c3d4-e5f/fs/read?path=/etc/passwd", nil)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
+	rec := httptest.NewRecorder()
+
+	s.handleRead(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	mockMgr.AssertNotCalled(t, "Read", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestHandleUpload_Success(t *testing.T) {
@@ -171,6 +201,30 @@ func TestHandleUpload_NoFile(t *testing.T) {
 	s.handleUpload(rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandleUpload_TooManyFiles(t *testing.T) {
+	mockMgr := &MockSessionService{}
+	s := testAPIServer(mockMgr)
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for i := 0; i < MaxUploadFiles+1; i++ {
+		part, err := w.CreateFormFile("files", fmt.Sprintf("f-%d.txt", i))
+		require.NoError(t, err)
+		_, _ = part.Write([]byte("x"))
+	}
+	require.NoError(t, w.Close())
+
+	req := httptest.NewRequest("POST", "/v1/sessions/a1b2c3d4-e5f/fs/upload", &buf)
+	req.SetPathValue("id", "a1b2c3d4-e5f")
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	s.handleUpload(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	mockMgr.AssertNotCalled(t, "Write", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestValidateWorkspaceFilePath(t *testing.T) {

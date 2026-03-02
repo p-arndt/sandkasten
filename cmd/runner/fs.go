@@ -10,7 +10,14 @@ import (
 )
 
 func (s *server) handleWrite(req protocol.Request) protocol.Response {
-	path := sanitizePath(req.Path)
+	path, ok := sanitizePath(req.Path)
+	if !ok || path == "/workspace" {
+		return protocol.Response{
+			ID:    req.ID,
+			Type:  protocol.ResponseError,
+			Error: "invalid path: must be a file under /workspace",
+		}
+	}
 
 	content, err := decodeContent(req)
 	if err != nil {
@@ -45,7 +52,14 @@ func (s *server) handleWrite(req protocol.Request) protocol.Response {
 }
 
 func (s *server) handleRead(req protocol.Request) protocol.Response {
-	path := sanitizePath(req.Path)
+	path, ok := sanitizePath(req.Path)
+	if !ok || path == "/workspace" {
+		return protocol.Response{
+			ID:    req.ID,
+			Type:  protocol.ResponseError,
+			Error: "invalid path: must be a file under /workspace",
+		}
+	}
 
 	maxBytes := req.MaxBytes
 	if maxBytes <= 0 {
