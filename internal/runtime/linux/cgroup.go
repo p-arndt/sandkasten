@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
@@ -26,6 +27,12 @@ type CgroupConfig struct {
 	MemLimitMB int     // Memory limit in MiB; 0 = unlimited
 	PidsLimit  int     // Max processes; 0 = unlimited
 }
+
+var (
+	warnMemLimitNoDelegationOnce  sync.Once
+	warnPidsLimitNoDelegationOnce sync.Once
+	warnCPULimitNoDelegationOnce  sync.Once
+)
 
 // getCgroupPath returns the cgroup v2 root for this process (e.g. /sys/fs/cgroup or
 // /sys/fs/cgroup/user.slice/user-1000.slice if under user delegation).
@@ -103,8 +110,9 @@ func CreateCgroup(sessionID string, cfg CgroupConfig) (string, error) {
 		memPath := filepath.Join(cgPath, "memory.max")
 		if err := os.WriteFile(memPath, []byte(strconv.FormatInt(memBytes, 10)), 0644); err != nil {
 			if os.IsPermission(err) {
-				// Cgroup may not be delegated (e.g. under systemd); warn but continue
-				fmt.Fprintf(os.Stderr, "warning: cannot set memory limit (cgroup not delegated): %v\n", err)
+				warnMemLimitNoDelegationOnce.Do(func() {
+					fmt.Fprintf(os.Stderr, "warning: cannot set memory limit (cgroup not delegated): %v\n", err)
+				})
 			} else {
 				return "", fmt.Errorf("set memory.max: %w", err)
 			}
@@ -121,7 +129,9 @@ func CreateCgroup(sessionID string, cfg CgroupConfig) (string, error) {
 		pidsPath := filepath.Join(cgPath, "pids.max")
 		if err := os.WriteFile(pidsPath, []byte(strconv.Itoa(cfg.PidsLimit)), 0644); err != nil {
 			if os.IsPermission(err) {
-				fmt.Fprintf(os.Stderr, "warning: cannot set pids limit (cgroup not delegated): %v\n", err)
+				warnPidsLimitNoDelegationOnce.Do(func() {
+					fmt.Fprintf(os.Stderr, "warning: cannot set pids limit (cgroup not delegated): %v\n", err)
+				})
 			} else {
 				return "", fmt.Errorf("set pids.max: %w", err)
 			}
@@ -136,7 +146,9 @@ func CreateCgroup(sessionID string, cfg CgroupConfig) (string, error) {
 		cpuPath := filepath.Join(cgPath, "cpu.max")
 		if err := os.WriteFile(cpuPath, []byte(cpuMax), 0644); err != nil {
 			if os.IsPermission(err) {
-				fmt.Fprintf(os.Stderr, "warning: cannot set cpu limit (cgroup not delegated): %v\n", err)
+				warnCPULimitNoDelegationOnce.Do(func() {
+					fmt.Fprintf(os.Stderr, "warning: cannot set cpu limit (cgroup not delegated): %v\n", err)
+				})
 			} else {
 				return "", fmt.Errorf("set cpu.max: %w", err)
 			}

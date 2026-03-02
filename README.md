@@ -205,18 +205,49 @@ uv run enhanced_agent.py
 
 The agent uses the daemon’s `default_image` (e.g. `python`) and connects to `http://localhost:8080` with the API key from your config.
 
-### Run with Docker
+### Run with Docker Compose
 
-You can also host Sandkasten with Docker:
+You can run Sandkasten fully via Compose (including automatic Python image bootstrap):
 
 ```bash
-# From the repo (sandkasten.yaml and docker-compose.yml in place)
-mkdir -p /var/lib/sandkasten
-docker compose up -d
+# From repo root
+docker compose up -d --build
 ```
 
-> [!TIP]
-> The stack uses the repo’s `Dockerfile` and `docker-compose.yml` (mounts `./sandkasten.yaml` and `/var/lib/sandkasten`). The container runs privileged so the daemon can create sandboxes. API on port 8080. Ensure an image exists for `default_image` (e.g. pull `python` before starting or via the daemon inside the container).
+What the stack does:
+- Starts a one-shot init service (`sandkasten-init`) that pulls `python:3.12-slim` into `/var/lib/sandkasten` as image name `python` (if not already present)
+- Starts `sandkasten` daemon with your mounted `sandkasten.yaml`
+- Exposes API on `http://localhost:8888/v1`
+
+Verify:
+
+```bash
+docker compose ps
+docker compose logs --tail=100 sandkasten-init
+docker compose logs --tail=100 sandkasten
+curl http://localhost:8888/healthz
+```
+
+Create a test session:
+
+```bash
+curl -X POST http://localhost:8888/v1/sessions \
+  -H "Authorization: Bearer sk-test" \
+  -H "Content-Type: application/json" \
+  -d '{"image":"python"}'
+```
+
+Reset everything (including images/sessions in the volume):
+
+```bash
+docker compose down -v
+```
+
+> [!IMPORTANT]
+> Compose uses `/var/lib/sandkasten` inside the container as persistent data dir. If your `default_image` is `python`, keep the init service enabled or ensure `python` exists in that data dir.
+
+> [!NOTE]
+> In Docker Desktop / nested cgroup environments, you may see one-time warnings about `memory.max`, `pids.max`, or `cpu.max` not being delegated. Sandkasten continues to run, but per-session cgroup limits may not be enforceable there.
 
 ## Documentation
 

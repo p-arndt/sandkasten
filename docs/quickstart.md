@@ -11,7 +11,54 @@ Get Sandkasten running in 5 minutes. This guide walks through **build → images
 > [!NOTE]
 > macOS is not supported. Use a Linux VM or WSL2.
 
-## Complete setup (step by step)
+## Setup paths
+
+### Option A: Docker Compose setup (recommended for local dev)
+
+If you prefer not to run the daemon directly with `sudo`, use the repo Compose stack:
+
+```bash
+docker compose up -d --build
+```
+
+This starts:
+- `sandkasten-init` (one-shot): pulls `python:3.12-slim` as image name `python` into `/var/lib/sandkasten` if missing
+- `sandkasten`: starts daemon with `daemon --config /etc/sandkasten/sandkasten.yaml`
+
+Default API endpoint with this stack:
+
+```bash
+http://localhost:8888/v1
+```
+
+Check status:
+
+```bash
+docker compose ps
+docker compose logs --tail=100 sandkasten-init
+docker compose logs --tail=100 sandkasten
+curl http://localhost:8888/healthz
+```
+
+Create a Python session:
+
+```bash
+curl -X POST http://localhost:8888/v1/sessions \
+  -H "Authorization: Bearer sk-test" \
+  -H "Content-Type: application/json" \
+  -d '{"image":"python"}'
+```
+
+Reset stack and volume:
+
+```bash
+docker compose down -v
+```
+
+> [!NOTE]
+> If you change `default_image` in `sandkasten.yaml`, make sure that image exists in `/var/lib/sandkasten/images/...` (or adjust init bootstrap accordingly).
+
+### Option B: Native Linux/WSL setup (step by step)
 
 ### 1. Build
 
@@ -225,6 +272,19 @@ The daemon needs root (or CAP_SYS_ADMIN) to create namespaces:
 ```bash
 sudo ./bin/sandkasten --config sandkasten.yaml
 ```
+
+### cgroup "not delegated" warnings in Docker
+
+Example warnings:
+- `cannot set memory limit (cgroup not delegated)`
+- `cannot set pids limit (cgroup not delegated)`
+- `cannot set cpu limit (cgroup not delegated)`
+
+In Docker Desktop/WSL2 this can happen because nested cgroup delegation is restricted. Sandkasten still runs, but strict per-session cgroup limits may not be fully enforceable.
+
+Options:
+- Keep current setup (warnings are emitted once per daemon process)
+- For fully enforced limits, run Sandkasten directly on Linux/WSL2 host (not nested in Docker)
 
 ### "image not found"
 

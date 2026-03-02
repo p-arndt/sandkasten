@@ -1,4 +1,21 @@
 services:
+  sandkasten-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sandkasten-init
+    restart: "no"
+
+    volumes:
+      - /var/lib/sandkasten:/var/lib/sandkasten
+
+    command:
+      [
+        "/bin/sh",
+        "-lc",
+        "if [ -f /var/lib/sandkasten/images/python/meta.json ]; then echo 'python image already present'; else /bin/sandkasten image pull --name python --data-dir /var/lib/sandkasten python:3.12-slim; fi",
+      ]
+
   sandkasten:
     build:
       context: .
@@ -17,6 +34,10 @@ services:
 
     environment:
       SANDKASTEN_API_KEY: sk-test
+
+    depends_on:
+      sandkasten-init:
+        condition: service_completed_successfully
 
     command: ["/bin/sandkasten", "daemon", "--config", "/etc/sandkasten/sandkasten.yaml"]
     ports:
