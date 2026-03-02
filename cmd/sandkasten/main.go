@@ -25,6 +25,8 @@ import (
 	"github.com/p-arndt/sandkasten/internal/store"
 )
 
+var Version = "dev"
+
 func main() {
 	if isNsinit() {
 		if err := runNsinit(); err != nil {
@@ -57,6 +59,13 @@ func main() {
 			os.Exit(runLogs(os.Args[2:]))
 		case "daemon":
 			os.Exit(runDaemon(os.Args[2:]))
+		case "version":
+			fmt.Printf("sandkasten version %s\n", Version)
+			os.Exit(0)
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
+			printMainUsage()
+			os.Exit(1)
 		}
 	}
 

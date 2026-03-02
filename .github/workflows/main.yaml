@@ -11,15 +11,6 @@ on:
 jobs:
   build-binaries:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            binary_name: dorcs-linux-amd64
-          - goos: windows
-            goarch: amd64
-            binary_name: dorcs-windows-amd64.exe
 
     steps:
       - uses: actions/checkout@v5
@@ -40,36 +31,31 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools gcc-mingw-w64-x86-64
+          sudo apt-get install -y musl-tools
 
       - name: Build binary
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          GOOS: linux
+          GOARCH: amd64
           CGO_ENABLED: 1
           VERSION: ${{ steps.get_tag.outputs.VERSION }}
         run: |
           mkdir -p binaries
           
-          # Set C compiler and linker flags based on target platform
-          if [ "${{ matrix.goos }}" = "linux" ]; then
-            export CC=musl-gcc
-            export LDFLAGS="-linkmode=external -extldflags=-static"
-          elif [ "${{ matrix.goos }}" = "windows" ]; then
-            export CC=x86_64-w64-mingw32-gcc
-            export LDFLAGS="-extldflags=-static"
-          fi
+          # use musl to produce static linux binary
+          export CC=musl-gcc
+          export LDFLAGS="-linkmode=external -extldflags=-static"
           
           go build \
             -trimpath \
             -ldflags "-s -w -X main.Version=${VERSION} ${LDFLAGS}" \
-            -o binaries/${{ matrix.binary_name }} \
-            ./cmd/dorcs
+            -o binaries/sandkasten-linux-amd64 \
+            ./cmd/sandkasten
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.binary_name }}
-          path: binaries/${{ matrix.binary_name }}
+          name: sandkasten-linux-amd64
+          path: binaries/sandkasten-linux-amd64
           retention-days: 7
 
   build-docker:
@@ -106,10 +92,10 @@ jobs:
           push: true
           build-args: VERSION=${{ steps.get_tag.outputs.VERSION }}
           tags: |
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/dorcs:${{ steps.get_tag.outputs.VERSION }}
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/dorcs:latest
-            ghcr.io/${{ github.repository_owner }}/dorcs:${{ steps.get_tag.outputs.VERSION }}
-            ghcr.io/${{ github.repository_owner }}/dorcs:latest
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/sandkasten:${{ steps.get_tag.outputs.VERSION }}
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/sandkasten:latest
+            ghcr.io/${{ github.repository_owner }}/sandkasten:${{ steps.get_tag.outputs.VERSION }}
+            ghcr.io/${{ github.repository_owner }}/sandkasten:latest
           cache-to: type=inline
 
   create-release:
@@ -144,7 +130,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: binaries
-          pattern: "dorcs-*"
+          pattern: "sandkasten-*"
           merge-multiple: true
 
       - name: Create GitHub Release
