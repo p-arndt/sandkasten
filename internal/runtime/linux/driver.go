@@ -163,9 +163,10 @@ func (d *Driver) Create(ctx context.Context, opts runtime.CreateOpts) (*runtime.
 		d.cleanupSessionDir(sessionDir)
 		return nil, fmt.Errorf("setup filesystem: %w", err)
 	}
-	// For bridge mode: defer resolv.conf until first network setup (lazy network).
-	// For other network modes (host/none): set up resolv.conf at create time.
-	if d.cfg.Defaults.NetworkMode != "none" && d.cfg.Defaults.NetworkMode != "bridge" {
+	// Prepare resolv.conf for all network modes except "none".
+	// This must happen before optional read-only remount so bridge mode works with
+	// readonly_rootfs enabled.
+	if d.cfg.Defaults.NetworkMode != "none" {
 		if err := EnsureResolvConf(mnt); err != nil {
 			CleanupMounts(mnt)
 			d.cleanupSessionDir(sessionDir)
@@ -374,9 +375,13 @@ func (d *Driver) ensureNetwork(sessionID, statePath string, state *protocol.Sess
 		ReleaseIP(sessionID)
 		return fmt.Errorf("setup session network: %w", err)
 	}
-	if err := EnsureResolvConf(state.Mnt); err != nil {
-		ReleaseIP(sessionID)
-		return fmt.Errorf("ensure resolv.conf: %w", err)
+	// resolv.conf is prepared at create time. Avoid rewriting it here when rootfs
+	// is read-only; bridge lazy network still works because the file already exists.
+	if !d.cfg.Defaults.ReadonlyRootfs {
+		if err := EnsureResolvConf(state.Mnt); err != nil {
+			ReleaseIP(sessionID)
+			return fmt.Errorf("ensure resolv.conf: %w", err)
+		}
 	}
 
 	state.NetworkReady = true
