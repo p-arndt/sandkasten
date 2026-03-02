@@ -2,25 +2,35 @@
 
 ## Releasing a new version
 
-### 1. Update version
+### Automated publish via GitHub Actions (recommended)
 
-Edit `pyproject.toml` and bump the `version` field:
+PyPI publish is handled by `.github/workflows/main.yaml` on tag pushes.
 
-```toml
-version = "0.2.1"  # or 0.3.0, 1.0.0, etc.
+1. Bump `project.version` in `pyproject.toml`.
+2. Commit and push.
+3. Create and push a matching tag:
+
+```bash
+git tag 0.3.1
+git push origin 0.3.1
 ```
 
-### 2. Build
+The workflow verifies that the tag matches `pyproject.toml`, builds the package, and publishes to PyPI.
+
+### One-time PyPI setup for CI
+
+Configure a trusted publisher in PyPI for this repository:
+
+- Owner/repo: `p-arndt/sandkasten`
+- Workflow: `main.yaml`
+- Environment: *(leave empty unless you use one)*
+
+If you prefer token-based publishing, add a `PYPI_API_TOKEN` secret and switch the publish step to token auth.
+
+### Manual publish (fallback)
 
 ```bash
 uv build
-```
-
-Creates `dist/sandkasten-<version>.tar.gz` and `dist/sandkasten-<version>-py3-none-any.whl`.
-
-### 3. Upload to PyPI
-
-```bash
 uvx twine upload dist/*
 ```
 
