@@ -1,150 +1,128 @@
 # Quickstart Guide
 
-Get Sandkasten running in 5 minutes. This guide walks through **build → images → config → daemon → first session** so nothing is skipped.
+Get Sandkasten running in under a minute. Pick whichever path fits your setup.
 
 ## Prerequisites
 
 - Linux (kernel 5.11+) or WSL2 with Ubuntu 22.04+
 - cgroups v2 (default on modern systems)
-- Go 1.24+ (for building)
 
 > [!NOTE]
 > macOS is not supported. Use a Linux VM or WSL2.
 
 ## Setup paths
 
-### Option A: Docker Compose setup (recommended for local dev)
-
-If you prefer not to run the daemon directly with `sudo`, use the repo Compose stack:
+### Option A: Docker (fastest, no build needed)
 
 ```bash
-docker compose up -d --build
+docker run -d --privileged --name sandkasten \
+  -p 8080:8080 \
+  -v sandkasten-data:/var/lib/sandkasten \
+  ghcr.io/p-arndt/sandkasten:latest \
+  /bin/sandkasten up
 ```
 
-This starts:
-- `sandkasten-init` (one-shot): pulls `python:3.12-slim` as image name `python` into `/var/lib/sandkasten` if missing
-- `sandkasten`: starts daemon with `daemon --config /etc/sandkasten/sandkasten.yaml`
-
-Default API endpoint with this stack:
+Or with docker compose (no repo clone needed):
 
 ```bash
-http://localhost:8888/v1
+curl -O https://raw.githubusercontent.com/p-arndt/sandkasten/main/docker-compose.standalone.yml
+docker compose -f docker-compose.standalone.yml up -d
+# Default API key: sk-sandkasten
 ```
 
 Check status:
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 sandkasten-init
-docker compose logs --tail=100 sandkasten
-curl http://localhost:8888/healthz
+docker logs sandkasten 2>&1 | grep "API key"
+curl http://localhost:8080/healthz
 ```
 
-Create a Python session:
+### Option B: Install binary + `sandkasten up` (recommended for native Linux/WSL2)
 
 ```bash
-curl -X POST http://localhost:8888/v1/sessions \
-  -H "Authorization: Bearer sk-test" \
-  -H "Content-Type: application/json" \
-  -d '{"image":"python"}'
+# Install the latest release binary
+curl -fsSL https://raw.githubusercontent.com/p-arndt/sandkasten/main/scripts/install.sh | sudo bash
+
+# Start with zero config
+sudo sandkasten up
 ```
 
-Reset stack and volume:
+`sandkasten up` automatically:
+1. Checks your environment (kernel, cgroups, overlayfs)
+2. Creates data directories in `/var/lib/sandkasten`
+3. Pulls a Python sandbox image from the registry
+4. Generates an API key and prints it to the terminal
+5. Starts the daemon on `localhost:8080`
+
+You can customize the defaults:
 
 ```bash
-docker compose down -v
+sudo sandkasten up --image node           # Use Node.js instead of Python
+sudo sandkasten up -d                      # Run in background
+sudo sandkasten up --listen 0.0.0.0:8080   # Bind to all interfaces
 ```
 
-> [!NOTE]
-> If you change `default_image` in `sandkasten.yaml`, make sure that image exists in `/var/lib/sandkasten/images/...` (or adjust init bootstrap accordingly).
-
-### Option B: Native Linux/WSL setup (step by step)
-
-### 1. Build
+### Option C: Build from source + `sandkasten up`
 
 ```bash
 git clone https://github.com/p-arndt/sandkasten
 cd sandkasten
 task build
+sudo ./bin/sandkasten up
 ```
 
-This produces:
-- `bin/sandkasten` — daemon and CLI
-- `bin/runner` — runs inside sandboxes (embedded when creating images)
-- `bin/imgbuilder` — legacy image import tool
+### Option D: Step-by-step (full control)
 
-### 2. Preflight and bootstrap
+For production or custom setups where you want explicit control over each step:
 
 ```bash
-# Check kernel, cgroups, overlayfs, data-dir
+# 1. Build (or install binary)
+task build
+
+# 2. Check environment
 ./bin/sandkasten doctor
 
-# Security baseline (api key, seccomp, limits)
-./bin/sandkasten security --config sandkasten.yaml
-
-# Create sandkasten.yaml + data dirs + pull first image (name: base)
+# 3. Bootstrap config, data dirs, and first image
 sudo ./bin/sandkasten init --config sandkasten.yaml
-```
 
-By default, `init` pulls **alpine:latest** as image name **base**. For Python/Node sessions or the example agents you need to pull more images (next step).
-
-### 3. Create images
-
-Sessions run from an **image** (a rootfs). You must have at least one image. Pull from OCI registries without a Docker daemon:
-
-```bash
-# Python (required for quickstart/agent examples)
+# 4. Pull additional images
 sudo ./bin/sandkasten image pull --name python python:3.12-slim
-
-# Optional: Node.js
 sudo ./bin/sandkasten image pull --name node node:22-slim
 
-# List and validate
-./bin/sandkasten image list
-./bin/sandkasten image validate base
-./bin/sandkasten image validate python
-```
+# 5. Edit sandkasten.yaml (set default_image, api_key, etc.)
 
-Image names (e.g. `python`, `node`, `base`) are what you use in config and API.
-
-### 4. Configuration
-
-If you used `sandkasten init`, you already have `sandkasten.yaml`. Edit it and set **default_image** to an image you created (e.g. `python`), and set **api_key**:
-
-```yaml
-listen: "127.0.0.1:8080"
-api_key: "sk-test"
-data_dir: "/var/lib/sandkasten"
-default_image: "python"
-```
-
-> [!NOTE]
-> If you did **not** run `init`, create the data dirs manually: `sudo mkdir -p /var/lib/sandkasten/{images,sessions,workspaces}` and create `sandkasten.yaml` with the content above. See [Configuration](./configuration.md) for all options.
-
-### 5. Start the daemon
-
-```bash
-# Foreground (logs in terminal; Ctrl+C to stop)
+# 6. Start daemon
 sudo ./bin/sandkasten --config sandkasten.yaml
-
-# Or background (like Docker)
-sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
 ```
 
-Stop when running in background:
+See [Configuration](./configuration.md) for all options.
 
-```bash
-sudo ./bin/sandkasten stop
-```
-
-### 6. Verify
+### Verify
 
 ```bash
 curl http://localhost:8080/healthz
 ./bin/sandkasten ps
 ```
 
-Once you see a healthy response and `ps` works, you can create sessions and run the example agent.
+## Auto-pull images
+
+Sandkasten automatically pulls images from OCI registries when they are requested but not available locally. This means you don't need to manually pull images before creating sessions.
+
+Well-known image mappings:
+
+| Name | Pulls | Description |
+|------|-------|-------------|
+| `python` | `python:3.12-slim` | Python 3.12 with pip |
+| `node` | `node:22-slim` | Node.js 22 with npm |
+| `base` | `alpine:latest` | Minimal Alpine Linux |
+| `ubuntu` | `ubuntu:24.04` | Ubuntu 24.04 |
+| `golang` | `golang:1.25-alpine` | Go 1.25 |
+| `ruby` | `ruby:3.3-slim` | Ruby 3.3 |
+| `rust` | `rust:1-slim` | Rust stable |
+
+Unknown image names are pulled as `<name>:latest` from Docker Hub.
+
+Auto-pull is enabled by default. Disable with `auto_pull: { enabled: false }` in config or `SANDKASTEN_AUTO_PULL=false`.
 
 ## Your First Session
 

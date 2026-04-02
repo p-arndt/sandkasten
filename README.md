@@ -46,7 +46,6 @@ async with SandboxClient(base_url="...", api_key="...") as client:
 - **Linux** with kernel 5.11+ (or WSL2 with Ubuntu 22.04+)
 - cgroups v2 mounted at `/sys/fs/cgroup`
 - overlayfs support
-- Go 1.24+ (for building)
 
 > [!NOTE]
 > macOS is not supported. Use a Linux VM or WSL2.
@@ -55,80 +54,91 @@ async with SandboxClient(base_url="...", api_key="...") as client:
 
 ## Quick Start
 
-Complete setup from zero to a running agent.
+Three ways to get running — pick whichever fits your setup.
 
-### 1. Build
+### Option A: Docker (30 seconds, no build needed)
+
+```bash
+docker run -d --privileged --name sandkasten \
+  -p 8080:8080 \
+  -v sandkasten-data:/var/lib/sandkasten \
+  ghcr.io/p-arndt/sandkasten:latest \
+  /bin/sandkasten up
+```
+
+That’s it. The container auto-initializes, pulls a Python image, generates an API key, and starts the daemon. Check the logs for your API key:
+
+```bash
+docker logs sandkasten 2>&1 | grep "API key"
+```
+
+Or use `docker compose` with the standalone file (no repo clone needed):
+
+```bash
+curl -O https://raw.githubusercontent.com/p-arndt/sandkasten/main/docker-compose.standalone.yml
+docker compose -f docker-compose.standalone.yml up -d
+# Default API key: sk-sandkasten
+```
+
+### Option B: Install binary (60 seconds)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/p-arndt/sandkasten/main/scripts/install.sh | sudo bash
+sudo sandkasten up
+```
+
+`sandkasten up` is a zero-config command that:
+- Checks your environment (kernel, cgroups, overlayfs)
+- Creates data directories in `/var/lib/sandkasten`
+- Pulls a Python sandbox image
+- Generates an API key and prints it
+- Starts the daemon on `localhost:8080`
+
+### Option C: Build from source
 
 ```bash
 git clone https://github.com/p-arndt/sandkasten
 cd sandkasten
 task build
+sudo ./bin/sandkasten up
 ```
 
-This produces `bin/sandkasten`, `bin/runner`, and `bin/imgbuilder`.
+This produces `bin/sandkasten`, `bin/runner`, and `bin/imgbuilder`, then starts with zero config.
 
-### 2. Preflight & initialize
+### Verify
 
 ```bash
-# Check kernel, cgroups, overlayfs
-./bin/sandkasten doctor
-
-# Security check (api key, seccomp, limits)
-./bin/sandkasten security --config sandkasten.yaml
-
-# Create sandkasten.yaml, data dirs, and pull the default image (name: base)
-sudo ./bin/sandkasten init --config sandkasten.yaml
+curl http://localhost:8080/healthz
 ```
 
-After this you have a minimal config and one image (`base`). For the example agent you need a **Python** image.
+### Advanced setup
 
-### 3. Create images
-
-Sessions run from an **image** (rootfs). Pull at least one image you’ll use (e.g. Python for the agent examples):
+For full control, you can still use the traditional step-by-step approach:
 
 ```bash
-# Pull a Python image (no Docker daemon required)
-sudo ./bin/sandkasten image pull --name python python:3.12-slim
-
-# Optional: Node.js
-sudo ./bin/sandkasten image pull --name node node:22-slim
-
-# List and validate
-./bin/sandkasten image list
-./bin/sandkasten image validate python
+./bin/sandkasten doctor                                    # check environment
+sudo ./bin/sandkasten init --config sandkasten.yaml        # bootstrap config + data dirs
+sudo ./bin/sandkasten image pull --name python python:3.12-slim  # pull images manually
+sudo ./bin/sandkasten --config sandkasten.yaml             # start daemon
 ```
 
-### 4. Configure
+See [Configuration](./docs/configuration.md) for all options.
 
-Edit `sandkasten.yaml` (in the repo root or where you run the daemon). Set `default_image` to an image you created and ensure `api_key` is set:
+### Auto-pull images
 
-```yaml
-listen: "127.0.0.1:8080"
-api_key: "sk-test"
-data_dir: "/var/lib/sandkasten"
-default_image: "python" # use the image you pulled
-```
+Sandkasten auto-pulls images from OCI registries when they're requested but not available locally. Supported well-known images:
 
-For more options (limits, workspaces, security) see [Configuration](./docs/configuration.md).
+| Name | OCI Reference |
+|------|---------------|
+| `python` | `python:3.12-slim` |
+| `node` | `node:22-slim` |
+| `base` | `alpine:latest` |
+| `ubuntu` | `ubuntu:24.04` |
+| `golang` | `golang:1.25-alpine` |
+| `ruby` | `ruby:3.3-slim` |
+| `rust` | `rust:1-slim` |
 
-### 5. Start the daemon
-
-```bash
-# Foreground (logs in terminal)
-sudo ./bin/sandkasten --config sandkasten.yaml
-
-# Or background (like Docker daemon)
-sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
-```
-
-Useful commands:
-
-```bash
-./bin/sandkasten ps          # list sessions (like docker ps)
-sudo ./bin/sandkasten stop   # stop daemon when run with daemon -d
-```
-
-When running in foreground, stop with **Ctrl+C**.
+Auto-pull is enabled by default. To disable: `auto_pull: { enabled: false }` in config or `SANDKASTEN_AUTO_PULL=false`.
 
 ### Benchmark Sandkasten vs Docker
 
@@ -189,13 +199,7 @@ task sandbench
 > [!IMPORTANT]
 > **Production:** Set a strong `api_key` (or `SANDKASTEN_API_KEY`). The daemon refuses to bind to a non-loopback address without an API key.
 
-### 6. Verify
-
-```bash
-curl http://localhost:8080/healthz
-```
-
-### 7. Run the example agent
+### Run the example agent
 
 ```bash
 cd quickstart/agent
@@ -207,44 +211,31 @@ The agent uses the daemon’s `default_image` (e.g. `python`) and connects to `h
 
 ### Run with Docker Compose
 
-You can run Sandkasten fully via Compose (including automatic Python image bootstrap):
+**Standalone** (no repo clone, uses published image):
 
 ```bash
-# From repo root
+curl -O https://raw.githubusercontent.com/p-arndt/sandkasten/main/docker-compose.standalone.yml
+docker compose -f docker-compose.standalone.yml up -d
+```
+
+**From repo** (builds from source):
+
+```bash
 docker compose up -d --build
 ```
 
-What the stack does:
-- Starts a one-shot init service (`sandkasten-init`) that pulls `python:3.12-slim` into `/var/lib/sandkasten` as image name `python` (if not already present)
-- Starts `sandkasten` daemon with your mounted `sandkasten.yaml`
-- Exposes API on `http://localhost:8888/v1`
-
-Verify:
+Both stacks auto-pull the Python image and start the daemon. Verify:
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 sandkasten-init
-docker compose logs --tail=100 sandkasten
-curl http://localhost:8888/healthz
+curl http://localhost:8080/healthz   # standalone (port 8080)
+curl http://localhost:8888/healthz   # from repo (port 8888)
 ```
 
-Create a test session:
-
-```bash
-curl -X POST http://localhost:8888/v1/sessions \
-  -H "Authorization: Bearer sk-test" \
-  -H "Content-Type: application/json" \
-  -d '{"image":"python"}'
-```
-
-Reset everything (including images/sessions in the volume):
+Reset everything:
 
 ```bash
 docker compose down -v
 ```
-
-> [!IMPORTANT]
-> Compose uses `/var/lib/sandkasten` inside the container as persistent data dir. If your `default_image` is `python`, keep the init service enabled or ensure `python` exists in that data dir.
 
 > [!NOTE]
 > In Docker Desktop / nested cgroup environments, you may see one-time warnings about `memory.max`, `pids.max`, or `cpu.max` not being delegated. Sandkasten continues to run, but per-session cgroup limits may not be enforceable there.

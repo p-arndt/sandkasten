@@ -19,6 +19,13 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*SessionInfo, er
 		return nil, fmt.Errorf("%w: %s", ErrInvalidImage, image)
 	}
 
+	// Auto-pull: if the image doesn't exist locally and auto-pull is enabled, fetch it.
+	if m.puller != nil && m.cfg.AutoPull.Enabled && !m.puller.ImageExists(image) {
+		if err := m.puller.PullImage(ctx, image); err != nil {
+			return nil, fmt.Errorf("auto-pull image %s: %w", image, err)
+		}
+	}
+
 	ttl := m.resolveTTL(opts.TTLSeconds)
 	workspaceID := opts.WorkspaceID
 	acquireDetail := ""

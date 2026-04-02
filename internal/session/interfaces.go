@@ -42,3 +42,11 @@ type WorkspaceManager interface {
 	Exists(ctx context.Context, workspaceID string) (bool, error)
 	Delete(ctx context.Context, workspaceID string) error
 }
+
+// ImagePuller pulls OCI images from a registry when they are not available locally.
+type ImagePuller interface {
+	// ImageExists returns true if the image is available locally.
+	ImageExists(image string) bool
+	// PullImage pulls the given OCI reference and stores it under the given name.
+	PullImage(ctx context.Context, imageName string) error
+}

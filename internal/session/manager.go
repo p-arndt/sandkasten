@@ -25,6 +25,7 @@ type Manager struct {
 	runtime   RuntimeDriver
 	workspace WorkspaceManager
 	pool      ContainerPool
+	puller    ImagePuller
 
 	locks   map[string]*sync.Mutex
 	locksMu sync.Mutex
@@ -39,6 +40,11 @@ func NewManager(cfg *config.Config, st SessionStore, rt RuntimeDriver, ws Worksp
 		pool:      pool,
 		locks:     make(map[string]*sync.Mutex),
 	}
+}
+
+// SetImagePuller configures the auto-pull backend for on-demand image fetching.
+func (m *Manager) SetImagePuller(p ImagePuller) {
+	m.puller = p
 }
 
 // sessionLock returns or creates a mutex for the given session ID.

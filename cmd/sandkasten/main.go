@@ -11,11 +11,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/p-arndt/sandkasten/internal/api"
+	"github.com/p-arndt/sandkasten/internal/autopull"
 	"github.com/p-arndt/sandkasten/internal/config"
 	"github.com/p-arndt/sandkasten/internal/pool"
 	"github.com/p-arndt/sandkasten/internal/reaper"
@@ -61,6 +63,8 @@ func main() {
 			os.Exit(runStop(os.Args[2:]))
 		case "logs":
 			os.Exit(runLogs(os.Args[2:]))
+		case "up":
+			os.Exit(runUp(os.Args[2:]))
 		case "daemon":
 			os.Exit(runDaemon(os.Args[2:]))
 		case "version":
@@ -134,6 +138,27 @@ func runDaemon(args []string) int {
 		logger.Error("load config", "error", err)
 		return 1
 	}
+
+	// Zero-config: auto-create data directories if they don't exist.
+	for _, sub := range []string{"images", "sessions", "workspaces", "run"} {
+		dir := filepath.Join(cfg.DataDir, sub)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			logger.Error("create data dir", "dir", dir, "error", err)
+			return 1
+		}
+	}
+
+	// Zero-config: auto-generate API key if none provided (loopback only).
+	if cfg.APIKey == "" && !isListenNonLoopback(cfg.Listen) {
+		generated, genErr := generateAPIKey()
+		if genErr != nil {
+			logger.Error("generate API key", "error", genErr)
+			return 1
+		}
+		cfg.APIKey = generated
+		logger.Info("auto-generated API key (no config file)", "api_key", cfg.APIKey)
+	}
+
 	logger.Debug("config loaded", "config_path", path, "data_dir", cfg.DataDir, "db_path", cfg.DBPath, "listen", cfg.Listen, "network_mode", cfg.Defaults.NetworkMode)
 
 	if daemonDetach {
@@ -210,6 +235,13 @@ func runDaemon(args []string) int {
 
 	mgr := session.NewManager(cfg, st, rt, nil, pl)
 
+	// Wire up auto-pull for on-demand image fetching.
+	if cfg.AutoPull.Enabled {
+		puller := autopull.New(cfg, logger)
+		mgr.SetImagePuller(puller)
+		logger.Info("auto-pull enabled")
+	}
+
 	rpr := reaper.New(st, rt, 30*time.Second, logger)
 	rpr.SetSessionManager(mgr)
 	go rpr.Run(ctx)
@@ -240,6 +272,9 @@ func runDaemon(args []string) int {
 	logger.Info("listening", "addr", cfg.Listen)
 	fmt.Fprintf(os.Stderr, "\n  sandkasten daemon ready\n")
 	fmt.Fprintf(os.Stderr, "  API:       http://%s/v1\n", cfg.Listen)
+	if path == "" {
+		fmt.Fprintf(os.Stderr, "  API key:   %s\n", cfg.APIKey)
+	}
 	if cfg.Dashboard.Enabled {
 		fmt.Fprintf(os.Stderr, "  Dashboard: http://%s/\n", cfg.Listen)
 	}

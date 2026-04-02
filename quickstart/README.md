@@ -1,90 +1,62 @@
 # Sandkasten Quickstart
 
-**5-minute end-to-end example** — run a coding agent with a real Linux sandbox.
+**1-minute setup** — run a coding agent with a real Linux sandbox.
 
 This quickstart includes:
-- 🐧 Sandkasten daemon (native Linux sandboxing)
-- 🤖 Enhanced interactive agent (OpenAI Agents SDK)
-- 🎨 Rich terminal UI with streaming & history
-- 📦 Three example agents to try
+- Sandkasten daemon (native Linux sandboxing)
+- Enhanced interactive agent (OpenAI Agents SDK)
+- Rich terminal UI with streaming & history
+- Three example agents to try
 
 ## Prerequisites
 
 - Linux (kernel 5.11+) or WSL2
-- Go 1.24+ (for building)
-- Python 3.10+
+- Python 3.10+ (for the agent)
 - OpenAI API key
 
 ---
 
-## Step 1: Build and Install
+## Step 1: Start Sandkasten
+
+**Option A: Docker (no build needed)**
+
+```bash
+docker run -d --privileged --name sandkasten \
+  -p 8080:8080 \
+  -v sandkasten-data:/var/lib/sandkasten \
+  -e SANDKASTEN_API_KEY=sk-sandbox-quickstart \
+  ghcr.io/p-arndt/sandkasten:latest \
+  /bin/sandkasten up
+```
+
+**Option B: Install binary**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/p-arndt/sandkasten/main/scripts/install.sh | sudo bash
+sudo sandkasten up
+```
+
+**Option C: Build from source**
 
 ```bash
 # From repo root
 task build
+sudo ./bin/sandkasten up
 ```
 
-This builds:
-- `bin/sandkasten` - The daemon
-- `bin/runner` - Runner binary
-- `bin/imgbuilder` - Image management tool
-
----
-
-## Step 2: Prepare Images
-
-Import at least one rootfs image:
-
-```bash
-# Quick method: export from Docker
-docker create --name temp python:3.12-slim
-docker export temp | gzip > /tmp/python.tar.gz
-docker rm temp
-
-# Import into sandkasten
-sudo ./bin/imgbuilder import --name python --tar /tmp/python.tar.gz
-
-# Verify
-./bin/imgbuilder list
-```
-
----
-
-## Step 3: Start Sandkasten Daemon
-
-Create `sandkasten.yaml`:
-
-```yaml
-listen: "127.0.0.1:8080"
-api_key: "sk-sandbox-quickstart"
-data_dir: "/var/lib/sandkasten"
-default_image: "python"
-```
-
-Start the daemon:
-
-```bash
-# Create data directories
-sudo mkdir -p /var/lib/sandkasten/{images,sessions,workspaces}
-
-# Start daemon (requires root for namespaces)
-# Foreground:
-sudo ./bin/sandkasten --config sandkasten.yaml
-# Or background (like Docker): sudo ./bin/sandkasten daemon -d --config sandkasten.yaml
-```
+`sandkasten up` handles everything: environment checks, data directories, image pulling, API key generation, and daemon startup.
 
 Check it's working:
 
 ```bash
-./bin/sandkasten ps   # List sessions (like docker ps)
 curl http://localhost:8080/healthz   # Should return: {"status":"ok"}
 ```
 
 ---
 
-## Step 4: Run the Agent
+## Step 2: Run the Agent
 
-### Enhanced Interactive Agent (Recommended)
+### Enhanced Interactive Agent (recommended)
 
 Beautiful terminal UI with streaming, history, and rich formatting:
 
@@ -131,7 +103,7 @@ uv run interactive_agent.py
 
 ---
 
-## Step 5: Try Example Tasks
+## Step 3: Try Example Tasks
 
 In the enhanced agent, try these prompts:
 

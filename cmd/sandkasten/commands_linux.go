@@ -95,6 +95,7 @@ func runImage(args []string) int {
 
 func printMainUsage() {
 	fmt.Fprint(os.Stderr, `Usage:
+  sandkasten up [options]                                Quick start (init + pull + run)
   sandkasten [--config <path>] [--log-level <level>]      Run daemon (foreground)
   sandkasten daemon [-d|--detach] [options]              Run daemon (optionally in background)
   sandkasten ps [--config <path>] [--host <url>]          List sessions (like docker ps)
@@ -105,6 +106,12 @@ func printMainUsage() {
   sandkasten security [--config <path>] [--data-dir <dir>] Run security baseline checks
   sandkasten init [options]                               Bootstrap config and data dir
   sandkasten image <command> [options]                    Manage images
+
+Quick start:
+  sandkasten up                                           Zero-config start (auto-pulls python, generates API key)
+  sandkasten up --image node                              Start with Node.js image
+  sandkasten up -d                                        Start in background
+  sandkasten up --listen 0.0.0.0:8080 --config my.yaml   Custom listen address with config
 
 Image commands:
   sandkasten image pull <ref> [--name <image>] [--data-dir <dir>]
@@ -707,6 +714,117 @@ func runInit(args []string) int {
 	fmt.Printf("- Default image: %s\n", *defaultImage)
 	fmt.Printf("- Start daemon: sudo ./bin/sandkasten --config %s\n", *configPath)
 	return 0
+}
+
+// runUp is the zero-config quick start command. It:
+// 1. Runs doctor checks (warn only, don't block)
+// 2. Creates data directories
+// 3. Auto-generates API key if needed
+// 4. Pulls the default image if not present
+// 5. Starts the daemon in the foreground
+func runUp(args []string) int {
+	fs := flag.NewFlagSet("up", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	cfgPath := fs.String("config", "", "path to sandkasten.yaml (optional)")
+	dataDir := fs.String("data-dir", envOrDefault("SANDKASTEN_DATA_DIR", defaultDataDir), "sandkasten data directory")
+	listen := fs.String("listen", envOrDefault("SANDKASTEN_LISTEN", defaultListen), "daemon listen address")
+	image := fs.String("image", envOrDefault("SANDKASTEN_DEFAULT_IMAGE", "python"), "default image to pull and use")
+	pullRef := fs.String("pull", "", "OCI reference to pull (auto-detected from --image if empty)")
+	detach := fs.Bool("d", false, "run daemon in background")
+	logLevel := fs.String("log-level", "", "log level: debug, info, warn, error")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "  sandkasten up — quick start")
+	fmt.Fprintln(os.Stderr, "")
+
+	// Step 1: Quick doctor check (non-blocking, just informational).
+	fmt.Fprint(os.Stderr, "  [1/4] Checking environment... ")
+	kernelOK, kernelDetail := checkKernelVersion()
+	cgroupOK, _ := checkCgroupV2()
+	overlayOK, _ := checkOverlayFS()
+	if kernelOK && cgroupOK && overlayOK {
+		fmt.Fprintln(os.Stderr, "OK (kernel "+kernelDetail+")")
+	} else {
+		if !kernelOK {
+			fmt.Fprintf(os.Stderr, "WARN: kernel %s\n", kernelDetail)
+		}
+		if !cgroupOK {
+			fmt.Fprintln(os.Stderr, "WARN: cgroups v2 not detected")
+		}
+		if !overlayOK {
+			fmt.Fprintln(os.Stderr, "WARN: overlayfs not detected")
+		}
+	}
+
+	// Step 2: Create data directories.
+	fmt.Fprint(os.Stderr, "  [2/4] Creating data directories... ")
+	for _, sub := range []string{"images", "sessions", "workspaces", "run"} {
+		dir := filepath.Join(*dataDir, sub)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "FAIL: %v\n", err)
+			return 1
+		}
+	}
+	fmt.Fprintln(os.Stderr, "OK")
+
+	// Step 3: Pull default image if not present.
+	fmt.Fprintf(os.Stderr, "  [3/4] Ensuring image %q... ", *image)
+	if imageExists(*dataDir, *image) {
+		fmt.Fprintln(os.Stderr, "already present")
+	} else {
+		ref := *pullRef
+		if ref == "" {
+			// Use well-known mapping or default to <image>:latest.
+			wellKnown := map[string]string{
+				"python": "python:3.12-slim",
+				"node":   "node:22-slim",
+				"base":   "alpine:latest",
+				"ubuntu": "ubuntu:24.04",
+				"golang": "golang:1.25-alpine",
+				"ruby":   "ruby:3.3-slim",
+				"rust":   "rust:1-slim",
+			}
+			if known, ok := wellKnown[*image]; ok {
+				ref = known
+			} else {
+				ref = *image + ":latest"
+			}
+		}
+		fmt.Fprintf(os.Stderr, "pulling %s... ", ref)
+		if err := pullImage(*dataDir, *image, ref); err != nil {
+			fmt.Fprintf(os.Stderr, "FAIL: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(os.Stderr, "OK")
+	}
+
+	// Step 4: Start daemon.
+	fmt.Fprintln(os.Stderr, "  [4/4] Starting daemon...")
+	fmt.Fprintln(os.Stderr, "")
+
+	// Build daemon args, forwarding relevant flags.
+	var daemonArgs []string
+	if *cfgPath != "" {
+		daemonArgs = append(daemonArgs, "--config", *cfgPath)
+	}
+	if *logLevel != "" {
+		daemonArgs = append(daemonArgs, "--log-level", *logLevel)
+	}
+	if *detach {
+		daemonArgs = append(daemonArgs, "-d")
+	}
+
+	// Set env vars so the daemon picks up our settings even without a config file.
+	os.Setenv("SANDKASTEN_DATA_DIR", *dataDir)
+	os.Setenv("SANDKASTEN_LISTEN", *listen)
+	os.Setenv("SANDKASTEN_DEFAULT_IMAGE", *image)
+	// Enable auto-pull so subsequent image requests also work.
+	os.Setenv("SANDKASTEN_AUTO_PULL", "true")
+
+	return runDaemon(daemonArgs)
 }
 
 func runImagePull(args []string) int {

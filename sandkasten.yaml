@@ -16,3 +16,5 @@ pool:
   enabled: true
   images:
     python: 3
+auto_pull:
+  enabled: true

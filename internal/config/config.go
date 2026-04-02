@@ -39,6 +39,10 @@ type DashboardConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+type AutoPullConfig struct {
+	Enabled bool `yaml:"enabled"` // auto-pull images from OCI registry when not found locally
+}
+
 type Config struct {
 	Listen               string          `yaml:"listen"`
 	APIKey               string          `yaml:"api_key"`
@@ -54,6 +58,7 @@ type Config struct {
 	Workspace            WorkspaceConfig `yaml:"workspace"`
 	Security             SecurityConfig  `yaml:"security"`
 	Dashboard            DashboardConfig `yaml:"dashboard"`
+	AutoPull             AutoPullConfig  `yaml:"auto_pull"`
 }
 
 func Load(yamlPath string) (*Config, error) {
@@ -84,6 +89,9 @@ func Load(yamlPath string) (*Config, error) {
 		},
 		Dashboard: DashboardConfig{
 			Enabled: false,
+		},
+		AutoPull: AutoPullConfig{
+			Enabled: true,
 		},
 	}
 
@@ -180,6 +188,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("SANDKASTEN_DASHBOARD_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Dashboard.Enabled = b
+		}
+	}
+	if v := os.Getenv("SANDKASTEN_AUTO_PULL"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.AutoPull.Enabled = b
 		}
 	}
 }

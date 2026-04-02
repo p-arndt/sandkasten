@@ -1,0 +1,41 @@
+# Standalone docker-compose for Sandkasten.
+# No repo clone needed — uses the published Docker image.
+#
+# Usage:
+#   curl -O https://raw.githubusercontent.com/p-arndt/sandkasten/main/docker-compose.standalone.yml
+#   docker compose -f docker-compose.standalone.yml up -d
+#
+# Then:
+#   curl http://localhost:8080/healthz
+#   curl -X POST http://localhost:8080/v1/sessions \
+#     -H "Authorization: Bearer sk-sandkasten" \
+#     -H "Content-Type: application/json" \
+#     -d '{"image":"python"}'
+
+services:
+  sandkasten:
+    image: ghcr.io/p-arndt/sandkasten:latest
+    container_name: sandkasten
+    restart: unless-stopped
+    privileged: true
+    cgroup: host
+
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - sandkasten-data:/var/lib/sandkasten
+
+    environment:
+      SANDKASTEN_API_KEY: sk-sandkasten
+      SANDKASTEN_DEFAULT_IMAGE: python
+      SANDKASTEN_AUTO_PULL: "true"
+      SANDKASTEN_DASHBOARD_ENABLED: "true"
+
+    # The entrypoint runs "sandkasten up" which auto-initializes
+    # data dirs, pulls the default image, and starts the daemon.
+    command: ["/bin/sandkasten", "up", "--image", "python"]
+
+    ports:
+      - "8080:8080"
+
+volumes:
+  sandkasten-data:

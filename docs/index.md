@@ -6,7 +6,7 @@ Welcome to the Sandkasten docs. This page is the entry point for all guides and 
 
 | Guide                                 | Description                                                             |
 | ------------------------------------- | ----------------------------------------------------------------------- |
-| [Quickstart](quickstart.md)           | Get running in 5 minutes — build, images, config, daemon, first session |
+| [Quickstart](quickstart.md)           | Get running in under a minute — Docker, install script, or build from source |
 | [Windows / WSL2](windows.md)          | Run Sandkasten on Windows via WSL2                                      |
 | [OpenAI Agents SDK](openai-agents.md) | Use Sandkasten as tools (exec, read, write) with the OpenAI Agents SDK  |
 

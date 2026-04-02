@@ -55,6 +55,10 @@ workspace:
 # Security
 security:
   seccomp: "mvp"  # "off" | "mvp" | "strict"
+
+# Auto-pull images from OCI registries when not found locally
+auto_pull:
+  enabled: true   # default: true
 ```
 
 ## Configuration Options
@@ -166,6 +170,46 @@ security:
 > [!TIP]
 > Run `./bin/sandkasten security --config sandkasten.yaml` to validate your runtime security baseline.
 
+### Auto-pull
+
+```yaml
+auto_pull:
+  enabled: true
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `true` | Automatically pull images from OCI registries when not found locally |
+
+When enabled, creating a session with an image that doesn't exist locally triggers an automatic pull from Docker Hub (or other OCI registries). Well-known short names are mapped to specific tags:
+
+| Image name | Pulls |
+|------------|-------|
+| `python` | `python:3.12-slim` |
+| `node` | `node:22-slim` |
+| `base` | `alpine:latest` |
+| `ubuntu` | `ubuntu:24.04` |
+| `golang` | `golang:1.25-alpine` |
+| `ruby` | `ruby:3.3-slim` |
+| `rust` | `rust:1-slim` |
+
+Unknown names are pulled as `<name>:latest`. The first session create for a new image is slower (download + extract), but subsequent creates use the cached image.
+
+### Zero-config mode
+
+Sandkasten can start with **no configuration file at all**. When no config is found:
+
+- Listens on `127.0.0.1:8080`
+- Auto-generates an API key and prints it to the terminal
+- Auto-creates data directories in `/var/lib/sandkasten`
+- Uses `base` as default image (auto-pulled on first session)
+
+The quickest way to start:
+
+```bash
+sudo sandkasten up    # zero-config start with Python image
+```
+
 ## Environment Variables
 
 All config options can be overridden with environment variables (prefix: `SANDKASTEN_`):
@@ -189,6 +233,8 @@ All config options can be overridden with environment variables (prefix: `SANDKA
 | `SANDKASTEN_SHELL_PREFER` | `defaults.shell_prefer` |
 | `SANDKASTEN_POOL_ENABLED` | `pool.enabled` |
 | `SANDKASTEN_SECCOMP` | `security.seccomp` |
+| `SANDKASTEN_AUTO_PULL` | `auto_pull.enabled` |
+| `SANDKASTEN_DASHBOARD_ENABLED` | `dashboard.enabled` |
 
 Example:
 
